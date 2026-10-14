@@ -320,9 +320,75 @@ constants.SUPPORT_DEFAULT_RANGE = 13
 constants.SUPPORT_RANGE_MARGIN = 1.5
 constants.SUPPORT_SPACING = 2.5
 constants.SUPPORT_ROW_GAP = 2.5
-constants.SUPPORT_FAN_ANGLE = 1.2
+constants.SUPPORT_FAN_ANGLE = 1.5
 constants.SUPPORT_FIRE_CLEARANCE = 4
-constants.SUPPORT_SLOT_TRIES = 3
+-- at most this many rows at full range, the rest attack the target directly
+constants.SUPPORT_MAX_ROWS = 2
+-- firing rows never come closer to the target than this
+constants.SUPPORT_MIN_RADIUS = 5
+
+-- learning: squads worn below this share of their formed size after reaching the
+-- defenses send their survivors to the base's next wave
+constants.REGROUP_FRACTION = 0.3
+-- power strikes only take poles within their supply reach (plus this margin) of a turret
+constants.POWER_EDGE_MARGIN = 1.5
+
+-- scaling caps: squads and builders scale with the hive up to the ceiling settings
+constants.CAPS_UPDATE_INTERVAL = 10 * constants.TICKS_A_SECOND
+-- floors rise with evolution to the old fixed caps, so late game never has fewer than before
+constants.CAPS_MIN_SQUADS = 5
+constants.CAPS_MIN_SQUADS_LATE = 30
+constants.CAPS_MIN_BUILDERS = 2
+constants.CAPS_MIN_BUILDERS_LATE = 10
+constants.SQUADS_NESTS_PER_SQUAD = 10
+constants.BUILDERS_NEST_CHUNKS_PER_BUILDER = 25
+constants.HIVE_TELEMETRY_INTERVAL = 60 * constants.TICKS_A_SECOND
+-- every squad is checked at least once per this many ticks
+constants.SQUAD_VISIT_TICKS = 60
+-- squads sent against stronger defenses are bigger, up to the squad size ceiling
+constants.SQUAD_SIZE_PER_STRENGTH = 0.1
+-- squads larger than the base size recruit from further away, up to this radius
+constants.SQUAD_MAX_RECRUIT_RADIUS = 256
+-- opt-in: base income grows with scouted defense strength, up to 3x at INCOME_STRENGTH_CAP
+constants.INCOME_STRENGTH_CAP = 100
+constants.INCOME_STRENGTH_SCALE = 50
+
+-- strategy: the perimeter map tracks sectors of the player's defenses
+constants.PERIMETER_CELL_SIZE = 128
+constants.PERIMETER_TTL = 30 * constants.TICKS_A_MINUTE
+constants.PERIMETER_UNKNOWN_STRENGTH = 20
+constants.PERIMETER_STRENGTH_WEIGHT = 0.2
+constants.PERIMETER_DISTANCE_SCALE = 400
+-- breaches: destroyed walls and turrets draw squads and make their sector a preferred objective
+constants.BREACH_ENTITY_TYPES = {
+    ["wall"] = true,
+    ["gate"] = true,
+    ["ammo-turret"] = true,
+    ["electric-turret"] = true,
+    ["fluid-turret"] = true
+}
+constants.BREACH_TTL = 3 * constants.TICKS_A_MINUTE
+constants.BREACH_SCORE_BONUS = 3
+constants.BREACH_OBJECTIVE_BONUS = 2
+-- surges: breaches score 1 and turret kills SURGE_TURRET_WEIGHT in their sector, halving
+-- every SURGE_HALF_LIFE, past SURGE_THRESHOLD nearby bases pour into the breakthrough
+constants.SURGE_HALF_LIFE = 60 * constants.TICKS_A_SECOND
+constants.SURGE_THRESHOLD = 6
+constants.SURGE_TURRET_WEIGHT = 3
+constants.SURGE_DURATION = 3 * constants.TICKS_A_MINUTE
+constants.SURGE_RANGE = 2000
+constants.SURGE_REDIRECT_RANGE = 600
+constants.SURGE_STAGING_TIMEOUT = 20 * constants.TICKS_A_SECOND
+
+-- joint offensives: bases near an objective gather at rally points and charge together
+constants.OBJECTIVE_RANGE = 1200
+constants.OBJECTIVE_EXPLORE_CHANCE = 0.2
+constants.OFFENSIVE_JOIN_RANGE = 900
+constants.OFFENSIVE_FORMING_TIME = 90 * constants.TICKS_A_SECOND
+constants.OFFENSIVE_MAX_WAIT = 4 * constants.TICKS_A_MINUTE
+constants.OFFENSIVE_TTL = 8 * constants.TICKS_A_MINUTE
+constants.OFFENSIVE_RALLY_DISTANCE = 80
+constants.OFFENSIVE_MOVE_TIMEOUT = 5 * constants.TICKS_A_MINUTE
 
 -- timing: attacks wait for darkness or a weakened defense up to a limit
 constants.DOCTRINE_MAX_WAIT = 5 * constants.TICKS_A_MINUTE
@@ -357,6 +423,17 @@ constants.DOCTRINE_DAMAGE_VALUE = 0.5
 constants.DOCTRINE_LOSS_PENALTY = 0.5
 -- enemy damage and kills with no squad unit as cause go to the closest attack impact within this radius
 constants.DOCTRINE_CREDIT_RADIUS = 64
+-- partial credit per squad that reached the defenses
+constants.DOCTRINE_REACH_VALUE = 40
+-- fitness is the raw score minus the usual score in the attack's sector, or against
+-- its defense profile until the sector has DOCTRINE_BASELINE_MIN attacks
+constants.DOCTRINE_SECTOR_SIZE = 256
+constants.DOCTRINE_BASELINE_ALPHA = 0.2
+constants.DOCTRINE_BASELINE_MIN = 3
+-- gene statistics steer mutation toward values that beat the baseline
+constants.DOCTRINE_GENE_STATS_DECAY = 0.97
+constants.DOCTRINE_GENE_STATS_MIN = 8
+constants.DOCTRINE_GENE_STEER = 0.75
 -- fitness per defense profile falls back to overall fitness until tried this many times
 constants.DOCTRINE_CONTEXT_PRIOR = 2
 -- the best doctrine against a profile is protected once it has this many tries there

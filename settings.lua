@@ -20,7 +20,8 @@ data:extend({
             name = "rampant--useDumbProjectiles",
             description = "rampant--useDumbProjectiles",
             setting_type = "startup",
-            default_value = true,
+            -- off so spitters and worms keep their vanilla acid streams, which arc over walls
+            default_value = false,
             order = "a[modifier]-a[projectiles]",
             per_user = false
         },
@@ -66,6 +67,8 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--maxNumberOfSquads",
+            -- replaced by rampant--squadCeiling, caps now scale with the hive
+            hidden = true,
             setting_type = "runtime-global",
             minimum_value = 1,
             maximum_value = 300,
@@ -77,6 +80,8 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--maxNumberOfBuilders",
+            -- replaced by rampant--builderCeiling, caps now scale with the hive
+            hidden = true,
             setting_type = "runtime-global",
             minimum_value = 1,
             maximum_value = 120,
@@ -593,6 +598,66 @@ data:extend({
             setting_type = "runtime-global",
             default_value = true,
             order = "m[total]-d[tactics]c2",
+            per_user = false
+        },
+
+        {
+            type = "int-setting",
+            name = "rampant--squadCeiling",
+            setting_type = "runtime-global",
+            minimum_value = 1,
+            maximum_value = 1000,
+            default_value = 300,
+            order = "b[modifier]-f[wave]a",
+            per_user = false
+        },
+
+        {
+            type = "int-setting",
+            name = "rampant--builderCeiling",
+            setting_type = "runtime-global",
+            minimum_value = 1,
+            maximum_value = 500,
+            default_value = 100,
+            order = "b[modifier]-f[wave]b",
+            per_user = false
+        },
+
+        {
+            type = "int-setting",
+            name = "rampant--squadSizeCeiling",
+            setting_type = "runtime-global",
+            minimum_value = 20,
+            maximum_value = 1000,
+            default_value = 400,
+            order = "b[modifier]-f[wave]c",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--incomeScalesWithDefenses",
+            setting_type = "runtime-global",
+            default_value = false,
+            order = "b[modifier]-f[wave]d",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--enableOffensives",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]c3",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--evolutionGatedTactics",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]c4",
             per_user = false
         },
 

@@ -90,6 +90,8 @@ local BASE_GENERATION_STATE_DORMANT = Constants.BASE_GENERATION_STATE_DORMANT
 local STATE_ENGLISH = Constants.STATE_ENGLISH
 
 local ACTIVE_NESTS_PER_AGGRESSIVE_GROUPS = Constants.ACTIVE_NESTS_PER_AGGRESSIVE_GROUPS
+local INCOME_STRENGTH_CAP = Constants.INCOME_STRENGTH_CAP
+local INCOME_STRENGTH_SCALE = Constants.INCOME_STRENGTH_SCALE
 local ALL_NESTS_PER_EXPANSION_GROUPS = Constants.ALL_NESTS_PER_EXPANSION_GROUPS
 local TEMPERAMENT_RANGE_MAX = Constants.TEMPERAMENT_RANGE_MAX
 local TEMPERAMENT_RANGE_MIN = Constants.TEMPERAMENT_RANGE_MIN
@@ -916,6 +918,15 @@ local function processBase(base, tick)
     end
 
     points = points * Universe.aiPointsScaler
+
+    if Universe.incomeScalesWithDefenses then
+        -- the stronger the defenses its scouts found, the more the base earns
+        local profile = base.defenseProfile
+        local strength = profile and profile.strength
+        if strength then
+            points = points * (1 + (mMin(strength, INCOME_STRENGTH_CAP) / INCOME_STRENGTH_SCALE))
+        end
+    end
 
     local currentPoints = base.unitPoints
 

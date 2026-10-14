@@ -42,6 +42,7 @@ local Universe
 local Constants = require("Constants")
 local MathUtils = require("MathUtils")
 local Telemetry = require("Telemetry")
+local Strategy = require("Strategy")
 
 -- Constants
 
@@ -79,6 +80,13 @@ local SECTOR_MEMORY = Constants.SECTOR_MEMORY
 local SECTOR_DETOURS = Constants.SECTOR_DETOURS
 local DETACHED_UNIT_TIMEOUT = Constants.DETACHED_UNIT_TIMEOUT
 local DOCTRINE_CREDIT_RADIUS = Constants.DOCTRINE_CREDIT_RADIUS
+local DOCTRINE_REACH_VALUE = Constants.DOCTRINE_REACH_VALUE
+local DOCTRINE_SECTOR_SIZE = Constants.DOCTRINE_SECTOR_SIZE
+local DOCTRINE_BASELINE_ALPHA = Constants.DOCTRINE_BASELINE_ALPHA
+local DOCTRINE_BASELINE_MIN = Constants.DOCTRINE_BASELINE_MIN
+local DOCTRINE_GENE_STATS_DECAY = Constants.DOCTRINE_GENE_STATS_DECAY
+local DOCTRINE_GENE_STATS_MIN = Constants.DOCTRINE_GENE_STATS_MIN
+local DOCTRINE_GENE_STEER = Constants.DOCTRINE_GENE_STEER
 
 -- imported functions
 
@@ -87,6 +95,7 @@ local gaussianRandomRangeRG = MathUtils.gaussianRandomRangeRG
 local mFloor = math.floor
 local mMin = math.min
 local mMax = math.max
+local mSqrt = math.sqrt
 local sFormat = string.format
 local sMatch = string.match
 
@@ -96,29 +105,47 @@ local sMatch = string.match
     Gene ranges. The defaults reproduce the behaviour of the fixed tactics so
     the "Balanced" seed is the baseline every other doctrine competes with.
 --]]
+--[[
+    unlock is the evolution factor a gene needs before it takes effect, below
+    that attacks use its locked value, so early game attacks stay simple and
+    tactics arrive as the biters evolve.
+--]]
 local GENES = {
     -- wave shape
-    {name = "squads", short = "sq", min = 1, max = 4, integer = true, default = 3},   -- squads per wave
-    {name = "sizeScale", short = "size", min = 0.5, max = 1.75, default = 1},         -- units and cost per squad
-    {name = "stagger", short = "stg", min = 0, max = 20, default = 0},                -- seconds between squad launches
-    {name = "spread", short = "pin", min = 0, max = 1, default = 0},                  -- chance a wave splits into a pincer
-    {name = "feint", short = "fnt", min = 0, max = 1, default = 0},                   -- chance a wave opens with a decoy
-    {name = "spitters", short = "spit", min = 0, max = 1, default = 0.3},             -- share of spitters recruited
-    {name = "support", short = "sup", min = 0, max = 1, default = 1},                 -- chance spitters break off to shoot over walls
+    {name = "squads", short = "sq", min = 1, max = 4, integer = true, default = 3, unlock = 0.3, locked = 1},  -- squads per wave
+    {name = "sizeScale", short = "size", min = 0.5, max = 1.75, default = 1, unlock = 0, locked = 1},        -- units and cost per squad
+    {name = "stagger", short = "stg", min = 0, max = 20, default = 0, unlock = 0.5, locked = 0},             -- seconds between squad launches
+    {name = "spread", short = "pin", min = 0, max = 1, default = 0, unlock = 0.55, locked = 0},              -- chance a wave splits into a pincer
+    {name = "feint", short = "fnt", min = 0, max = 1, default = 0, unlock = 0.65, locked = 0},               -- chance a wave opens with a decoy
+    {name = "spitters", short = "spit", min = 0, max = 1, default = 0.3, unlock = 0, locked = 0.3},          -- share of spitters recruited
+    {name = "support", short = "sup", min = 0, max = 1, default = 1, unlock = 0.4, locked = 0},              -- chance spitters break off to shoot over walls
+    {name = "joint", short = "jnt", min = 0, max = 1, default = 0.5, unlock = 0.6, locked = 0},              -- chance to found or join a joint offensive
     -- movement and nerve
-    {name = "aversion", short = "avr", min = 0, max = 0.75, default = 0.25},          -- how hard to avoid known defenses
-    {name = "march", short = "mar", min = 0, max = 1, default = 0},                   -- chance a squad ignores fire en route
-    {name = "kamikaze", short = "kam", min = -0.2, max = 0.4, default = 0},           -- added to the no-retreat chance
-    {name = "resolve", short = "res", min = 0, max = 1, default = 0.5},               -- higher holds longer before retreating
+    {name = "aversion", short = "avr", min = 0, max = 0.75, default = 0.25, unlock = 0.2, locked = 0},       -- how hard to avoid known defenses
+    {name = "march", short = "mar", min = 0, max = 1, default = 0, unlock = 0.5, locked = 0},                -- chance a squad ignores fire en route
+    {name = "kamikaze", short = "kam", min = -0.2, max = 0.4, default = 0, unlock = 0, locked = 0},          -- added to the no-retreat chance
+    {name = "resolve", short = "res", min = 0, max = 1, default = 0.5, unlock = 0, locked = 0.5},            -- higher holds longer before retreating
     -- target priorities, weighed against a plain brawl at the attack point
-    {name = "power", short = "pow", min = 0, max = 1, default = 1},                   -- poles powering lasers and teslas
-    {name = "ammo", short = "amm", min = 0, max = 1, default = 1},                    -- inserters loading gun turrets
-    {name = "science", short = "sci", min = 0, max = 1, default = 0},                 -- labs
-    {name = "logistics", short = "log", min = 0, max = 1, default = 0},               -- rails, train stops, roboports
-    {name = "hunt", short = "hnt", min = 0, max = 1, default = 0},                    -- player characters
+    {name = "power", short = "pow", min = 0, max = 1, default = 1, unlock = 0.45, locked = 0},               -- poles powering lasers and teslas
+    {name = "ammo", short = "amm", min = 0, max = 1, default = 1, unlock = 0.45, locked = 0},                -- inserters loading gun turrets
+    {name = "science", short = "sci", min = 0, max = 1, default = 0, unlock = 0.6, locked = 0},              -- labs
+    {name = "logistics", short = "log", min = 0, max = 1, default = 0, unlock = 0.6, locked = 0},            -- rails, train stops, roboports
+    {name = "hunt", short = "hnt", min = 0, max = 1, default = 0, unlock = 0.7, locked = 0},                 -- player characters
     -- timing, each attack waits for its window up to a limit
-    {name = "night", short = "ngt", min = 0, max = 1, default = 0},                   -- chance to wait for darkness
-    {name = "opportune", short = "opp", min = 0, max = 1, default = 0}                -- chance to wait for a brownout or absent player
+    {name = "night", short = "ngt", min = 0, max = 1, default = 0, unlock = 0.35, locked = 0},               -- chance to wait for darkness
+    {name = "opportune", short = "opp", min = 0, max = 1, default = 0, unlock = 0.5, locked = 0}             -- chance to wait for a brownout or absent player
+}
+
+-- tactics outside the genes unlock with evolution too
+local TACTIC_UNLOCKS = {
+    scouting = 0.15,
+    detours = 0.3,
+    breaches = 0.4,
+    regroup = 0.5,
+    surges = 0.5,
+    -- squads without a doctrine, like vengeance squads, use these
+    support = 0.4,
+    priorities = 0.45
 }
 
 local SEEDS = {
@@ -136,7 +163,9 @@ local SEEDS = {
 }
 
 -- bump when genes change so populations in existing saves gain the new genes
-local GENE_VERSION = 3
+local GENE_VERSION = 4
+-- bump when the meaning of fitness changes so stored fitness is reset
+local SCORE_VERSION = 2
 
 local function defaultGenes()
     local genes = {}
@@ -207,8 +236,21 @@ end
 
 local function upgradeGenes(doctrine)
     local population = doctrine.population
+    local resetScores = (doctrine.scoreVersion ~= SCORE_VERSION)
     for i=1,#population do
-        fillGenes(population[i].genes)
+        local genome = population[i]
+        fillGenes(genome.genes)
+        if resetScores then
+            -- old fitness was on another scale, keep lineages but restart their scores
+            genome.fitness = 0
+            genome.contexts = nil
+            genome.trials = mMin(genome.trials, 1)
+        end
+    end
+    if resetScores then
+        doctrine.baselines = nil
+        doctrine.geneStats = nil
+        doctrine.scoreVersion = SCORE_VERSION
     end
     doctrine.geneVersion = GENE_VERSION
 end
@@ -226,11 +268,15 @@ function Doctrine.upgradeSaved()
     end
     for _, attack in pairs(Universe.activeAttacks or {}) do
         fillGenes(attack.genome.genes)
+        attack.genes = attack.genes or copyGenes(attack.genome.genes)
+        fillGenes(attack.genes)
     end
     for _, base in pairs(Universe.bases) do
         local attack = base.attack
         if attack and attack.genome then
             fillGenes(attack.genome.genes)
+            attack.genes = attack.genes or copyGenes(attack.genome.genes)
+            fillGenes(attack.genes)
         end
     end
 end
@@ -251,6 +297,7 @@ local function getDoctrine(map)
     }
     map.doctrine = doctrine
     doctrine.geneVersion = GENE_VERSION
+    doctrine.scoreVersion = SCORE_VERSION
     for i=1,mMin(#SEEDS, DOCTRINE_POPULATION_SIZE) do
         local seed = SEEDS[i]
         local genes = defaultGenes()
@@ -319,7 +366,107 @@ local function updateFitness(stats, fitness)
     end
 end
 
-local function breed(doctrine)
+--[[
+    Baselines: the usual raw score in a sector, or against a defense profile
+    when the sector has too little history. A doctrine's fitness is how far its
+    attacks beat the baseline, so doctrines are not judged on where they landed.
+--]]
+local function sectorKey(position)
+    if not position then
+        return nil
+    end
+    return mFloor(position.x / DOCTRINE_SECTOR_SIZE) .. ":" .. mFloor(position.y / DOCTRINE_SECTOR_SIZE)
+end
+
+local function baselineFor(doctrine, kind, key, create)
+    local baselines = doctrine.baselines
+    if not baselines then
+        baselines = {sector = {}, context = {}}
+        doctrine.baselines = baselines
+    end
+    local entry = baselines[kind][key]
+    if (not entry) and create then
+        entry = {n = 0, mean = 0}
+        baselines[kind][key] = entry
+    end
+    return entry
+end
+
+local function updateBaseline(entry, raw)
+    entry.n = entry.n + 1
+    local alpha = mMax(1 / entry.n, DOCTRINE_BASELINE_ALPHA)
+    entry.mean = entry.mean + (alpha * (raw - entry.mean))
+end
+
+local function advantageOf(doctrine, attack, context, raw)
+    local key = sectorKey(attack.impact)
+    local sector = key and baselineFor(doctrine, "sector", key, true)
+    local profile = baselineFor(doctrine, "context", context, true)
+    local baseline
+    if sector and (sector.n >= DOCTRINE_BASELINE_MIN) then
+        baseline = sector.mean
+    elseif (profile.n >= DOCTRINE_BASELINE_MIN) then
+        baseline = profile.mean
+    else
+        -- no history yet, score against zero like before
+        baseline = 0
+    end
+    if sector then
+        updateBaseline(sector, raw)
+    end
+    updateBaseline(profile, raw)
+    return raw - baseline, baseline
+end
+
+--[[
+    Gene statistics: decayed covariance between each gene's value and the
+    advantage it produced. Mutation is nudged along genes that correlate with
+    beating the baseline, which learns faster than blind mutation.
+--]]
+local function recordGeneStats(doctrine, context, genes, advantage)
+    -- per defense profile, a gene that helps against lasers can hurt against guns
+    local allStats = doctrine.geneStats
+    if not allStats then
+        allStats = {}
+        doctrine.geneStats = allStats
+    end
+    local stats = allStats[context]
+    if not stats then
+        stats = {}
+        allStats[context] = stats
+    end
+    for i=1,#GENES do
+        local gene = GENES[i]
+        local x = ((genes[gene.name] or gene.default) - gene.min) / (gene.max - gene.min)
+        local s = stats[gene.name]
+        if not s then
+            s = {w = 0, mx = 0, my = 0, cxy = 0, cxx = 0, cyy = 0}
+            stats[gene.name] = s
+        end
+        -- exponentially weighted moments
+        local w = (s.w * DOCTRINE_GENE_STATS_DECAY) + 1
+        local a = 1 / w
+        local dx = x - s.mx
+        local dy = advantage - s.my
+        s.mx = s.mx + (a * dx)
+        s.my = s.my + (a * dy)
+        s.cxy = ((1 - a) * (s.cxy + (a * dx * dy)))
+        s.cxx = ((1 - a) * (s.cxx + (a * dx * dx)))
+        s.cyy = ((1 - a) * (s.cyy + (a * dy * dy)))
+        s.w = w
+    end
+end
+
+local function geneCorrelation(doctrine, context, name)
+    local stats = context and doctrine.geneStats and doctrine.geneStats[context]
+    local s = stats and stats[name]
+    if not s or (s.w < DOCTRINE_GENE_STATS_MIN) or (s.cxx <= 0) or (s.cyy <= 0) then
+        return 0
+    end
+    return s.cxy / mSqrt(s.cxx * s.cyy)
+end
+
+local function breed(doctrine, context)
     local population = doctrine.population
     local mother = tournament(population)
     local father = tournament(population)
@@ -337,7 +484,9 @@ local function breed(doctrine)
             if gene.integer then
                 spread = mMax(spread, 0.75)
             end
-            value = gaussianRandomRangeRG(value, spread, gene.min, gene.max, Universe.random)
+            -- lean the mutation toward values that have beaten the baseline
+            local steer = geneCorrelation(doctrine, context, gene.name) * DOCTRINE_GENE_STEER * spread
+            value = gaussianRandomRangeRG(value + steer, spread, gene.min, gene.max, Universe.random)
         end
         genes[gene.name] = clampGene(gene, value)
     end
@@ -401,7 +550,7 @@ local function findProtected(population)
     return protected
 end
 
-local function evolve(doctrine, surfaceName)
+local function evolve(doctrine, surfaceName, context)
     local population = doctrine.population
     local protected = findProtected(population)
     local worstIndex
@@ -423,7 +572,8 @@ local function evolve(doctrine, surfaceName)
     if (doctrine.generation % DOCTRINE_WILDCARD_EVERY) == 0 then
         child = wildcard(doctrine)
     else
-        child = breed(doctrine)
+        -- steer the child toward what works against the defense just attacked
+        child = breed(doctrine, context)
     end
     population[worstIndex] = child
     printDoctrine(sFormat("%s doctrine #%d %s (%.2f) replaced by #%d %s, generation %d",
@@ -443,9 +593,12 @@ end
     Attack value per point spent, discounted when most of the attackers died.
 --]]
 local function scoreAttack(attack)
+    -- squads that reached the defenses earn partial credit, so attacks that got
+    -- there and failed rank above attacks that never arrived
     local value = attack.destroyedValue
         + (attack.turretKills * DOCTRINE_TURRET_KILL_BONUS)
         + (attack.damageDealt * DOCTRINE_DAMAGE_VALUE)
+        + ((attack.reached or 0) * DOCTRINE_REACH_VALUE)
     local lossFraction = 0
     if (attack.units > 0) then
         lossFraction = mMin(1, attack.unitsLost / attack.units)
@@ -481,6 +634,7 @@ updateSector = function(attack, fitness)
     local base = attack.base
     local sector = getSector(base, tick)
     local failed = fitness < SECTOR_FAIL_FITNESS
+    Strategy.recordOutcome(base.map, attack.impact, not failed, tick)
     local detour = attack.detour
     if not detour then
         if failed then
@@ -567,10 +721,13 @@ local function finishAttack(attack)
     local genome = attack.genome
     -- attacks started before defense profiles existed have no context
     local context = attack.context or DOCTRINE_CONTEXT_UNKNOWN
-    local fitness = scoreAttack(attack)
+    local raw = scoreAttack(attack)
+    local doctrine = getDoctrine(attack.map)
+    local fitness, baseline = advantageOf(doctrine, attack, context, raw)
+    recordGeneStats(doctrine, context, attack.genes or genome.genes, fitness)
     local surfaceName = (attack.surface.valid and attack.surface.name) or "?"
-    printDoctrine(sFormat("%s attack #%d with #%d %s vs %s scored %.2f (destroyed %.0f, turrets %d, damage %.0f, lost %d/%d)",
-                          surfaceName, attack.id, genome.id, genome.label, context, fitness,
+    printDoctrine(sFormat("%s attack #%d with #%d %s vs %s scored %.2f against a usual %.2f (destroyed %.0f, turrets %d, damage %.0f, lost %d/%d)",
+                          surfaceName, attack.id, genome.id, genome.label, context, raw, baseline,
                           attack.destroyedValue, attack.turretKills, attack.damageDealt,
                           attack.unitsLost, attack.units))
     if Telemetry.enabled() then
@@ -582,6 +739,11 @@ local function finishAttack(attack)
                 label = genome.label,
                 context = context,
                 fitness = fitness,
+                raw = raw,
+                baseline = baseline,
+                sector = sectorKey(attack.impact),
+                reached = attack.reached or 0,
+                offensive = attack.offensive and attack.offensive.id,
                 destroyed = attack.destroyedValue,
                 turretKills = attack.turretKills,
                 damage = attack.damageDealt,
@@ -603,12 +765,9 @@ local function finishAttack(attack)
     updateFitness(genome, fitness)
     updateFitness(getContextStats(genome, context, true), fitness)
 
-    local doctrine = attack.map.doctrine
-    if doctrine then
-        doctrine.completed = doctrine.completed + 1
-        if (doctrine.completed % DOCTRINE_EVOLVE_EVERY) == 0 then
-            evolve(doctrine, surfaceName)
-        end
+    doctrine.completed = doctrine.completed + 1
+    if (doctrine.completed % DOCTRINE_EVOLVE_EVERY) == 0 then
+        evolve(doctrine, surfaceName, context)
     end
 end
 
@@ -645,13 +804,52 @@ local function select(map, context)
     return best
 end
 
+local function evolutionOf(surface)
+    return game.forces.enemy.get_evolution_factor(surface)
+end
+
+--[[
+    The genes an attack actually uses: genes still locked at this evolution
+    use their locked value.
+--]]
+local function effectiveGenes(genes, evolution)
+    local effective = {}
+    local gated = Universe.evolutionGatedTactics
+    for i=1,#GENES do
+        local gene = GENES[i]
+        local value = genes[gene.name]
+        if (value == nil) then
+            value = gene.default
+        end
+        if gated and (evolution < gene.unlock) then
+            value = gene.locked
+        end
+        effective[gene.name] = value
+    end
+    return effective
+end
+
+function Doctrine.tacticUnlocked(tactic, surface)
+    if not Universe.evolutionGatedTactics then
+        return true
+    end
+    return evolutionOf(surface) >= TACTIC_UNLOCKS[tactic]
+end
+
 function Doctrine.newAttack(base, tick)
     local context = Doctrine.currentContext(base, tick)
     local genome = select(base.map, context)
+    local evolution = evolutionOf(base.map.surface)
+    local detour
+    if Doctrine.tacticUnlocked("detours", base.map.surface) then
+        detour = chooseDetour(base, tick)
+    end
     return {
         genome = genome,
+        genes = effectiveGenes(genome.genes, evolution),
+        evolution = evolution,
         context = context,
-        detour = chooseDetour(base, tick),
+        detour = detour,
         evaluate = (genome ~= DEFAULT_GENOME),
         base = base,
         map = base.map,
@@ -706,14 +904,14 @@ function Doctrine.addSquad(attack, squad, cost, units, tick)
                     feint = attack.feint or false,
                     detour = attack.detour and attack.detour.index,
                     detourDistance = attack.detour and attack.detour.distance,
-                    genes = copyGenes(genome.genes)
+                    evolutionFactor = attack.evolution,
+                    genes = copyGenes(attack.genes)
             })
         end
     end
 end
 
-function Doctrine.applyToSquad(squad, genome)
-    local genes = genome.genes
+function Doctrine.applyToSquad(squad, genes)
     squad.aversion = genes.aversion
     squad.march = Universe.random() < genes.march
     squad.retreatScale = 1.5 - genes.resolve
@@ -1029,9 +1227,11 @@ function Doctrine.concludeScouting(base, tick)
         return
     end
     local key = profileKey(report)
+    Strategy.recordScout(base.map, report.position, report, tick)
     base.defenseProfile = {
         key = key,
         tick = tick,
+        strength = (report.surveys > 0) and Strategy.defenseStrength(report) or nil,
         position = report.position,
         sentinel = report.sentinel
     }
@@ -1062,8 +1262,19 @@ function Doctrine.needsScouting(base, tick)
     return (not profile) or ((tick - profile.tick) >= DEFENSE_PROFILE_TTL)
 end
 
+function Doctrine.currentStrength(base, tick)
+    local profile = base.defenseProfile
+    if profile and (not Doctrine.needsScouting(base, tick)) then
+        return profile.strength
+    end
+    return nil
+end
+
 function Doctrine.currentContext(base, tick)
-    if not Universe.enableScouting or Doctrine.needsScouting(base, tick) then
+    if (not Universe.enableScouting)
+        or (not Doctrine.tacticUnlocked("scouting", base.map.surface))
+        or Doctrine.needsScouting(base, tick)
+    then
         return DOCTRINE_CONTEXT_UNKNOWN
     end
     return base.defenseProfile.key
@@ -1099,7 +1310,7 @@ end
 --]]
 function Doctrine.attackWindowOpen(attack, tick)
     if not attack.waitUntil then
-        local genes = attack.genome.genes
+        local genes = attack.genes
         attack.waitUntil = tick + DOCTRINE_MAX_WAIT
         attack.waitNight = Universe.random() < genes.night
         attack.waitOpportunity = Universe.random() < genes.opportune

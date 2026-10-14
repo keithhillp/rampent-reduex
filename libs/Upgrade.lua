@@ -548,6 +548,12 @@ function Upgrade.addUniverseProperties()
         Universe.detachedUnits = {}
         Universe.detachedIterator = nil
     end
+    if storage.universePropertyVersion < 7 then
+        storage.universePropertyVersion = 7
+        Universe.offensives = {}
+        Universe.offensiveId = 0
+        Universe.offensiveIterator = nil
+    end
 end
 
 function Upgrade.attempt()

@@ -1,4 +1,47 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.11.0
+  Features:
+    - Surges: a burst of breaches and turret kills in one sector declares a breakthrough, bases within 2000 tiles send their next attacks straight to it without waiting or gathering, squads raiding within 600 tiles divert to it, and every new breach keeps it going, unlocked at 50% evolution and switched with Tactics: Joint offensives
+  Changes:
+    - Fire support spitters take at most two rows of firing spots at their full range, return fire while moving to them, and spitters whose spot is burning or that do not fit on the line attack their target directly instead of walking along the line or into the kill zone
+    - The firing line is wider so more spitters fit at full range
+
+---------------------------------------------------------------------------------------------------
+Version: 3.10.0
+  Features:
+    - Squad and builder caps scale with the hive, about one squad per 10 active nests and one builder per 25 nest chunks, growing with evolution and never below the old caps of 30 and 10 at full evolution, up to the new Attack Wave: Most squads at once (300) and Attack Wave: Most builder squads at once (100) settings
+    - Squads grow with the strength of the defenses they are sent against, up to the new Attack Wave: Largest squad size setting (400), and cost points in proportion
+    - Added AI: Bases earn more against strong defenses setting, off by default, which lets bases earn up to 3 times as many points against heavily defended bases
+    - Telemetry records the size of the hive every minute: active nests, caps, squads, units in squads
+  Changes:
+    - Projectiles: Use blockable projectiles is now off by default, so vanilla spitters and worms keep their acid streams that arc over walls instead of being stopped by them
+    - Every squad is now checked at least once a second however many squads there are, instead of one squad per tick
+    - The old max squads and max builders settings are replaced by the new ceilings, existing saves start from the new defaults
+    - Attack Wave: Max biter group size is now Attack Wave: Base squad size at full evolution
+  Bugfixes:
+    - Fixed builder squads being formed one past the builder cap and Rampant's own settler squads being disbanded when they finished gathering
+    - Fixed very large squads always rolling kamikaze
+    - Fixed crash "real number expected got nan" when a large group of spitters fanned out for fire support and the firing rows reached the target
+    - Fixed joint offensive squads being turned kamikaze and then deleted by the stuck squad penalty while waiting at their rally points, so most offensives never charged
+    - Squads larger than the base size recruit from up to 256 tiles away so they can fill up
+
+---------------------------------------------------------------------------------------------------
+Version: 3.9.0
+  Features:
+    - Joint offensives: bases near each other gather their squads at rally points around one objective and charge it together, controlled by a new joint gene and the Tactics: Joint offensives setting
+    - Perimeter map: scout surveys, attack outcomes and breaches build a map of the strength of each sector of the player's defenses, and offensives target the weakest known sector in reach while avoiding sectors another offensive is already hitting
+    - Focus fire: spitters from the same wave or offensive concentrate on one target to open a breach
+    - Breaches: destroyed walls and turrets draw attacking squads to that chunk for a few minutes and make their sector a preferred objective
+    - Regrouping: squads worn down after reaching the defenses send their survivors to join their base's next wave
+    - Tactics unlock with evolution: early biters attack simply and gain scouting, waves, fire support, priority strikes, pincers, offensives, feints and player hunting as evolution rises, controlled by the Tactics: Unlock tactics with evolution setting
+    - Added /rampantStrategy command listing the known sectors of the player's defenses and the offensives underway
+  Changes:
+    - Doctrine fitness is how far an attack beat the usual score in its sector, or against its defense profile, so doctrines are no longer judged on where they happened to attack, existing doctrines restart their scores
+    - Squads that reach the defenses give their attack partial credit even when they destroy nothing
+    - Mutation is steered toward gene values that have beaten the usual score against the defense being attacked
+    - Power strikes only target poles that directly power a turret instead of substations deep in the base
+
+---------------------------------------------------------------------------------------------------
 Version: 3.8.2
   Bugfixes:
     - Attack scores now count damage and kills from spitter acid splash fires and other indirect enemy damage, which carry no squad unit as their cause and were missed, by crediting the attack hitting that spot

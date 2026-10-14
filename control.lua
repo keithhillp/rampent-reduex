@@ -24,6 +24,7 @@ local MapUtils = require("libs/MapUtils")
 local Squad = require("libs/Squad")
 local Doctrine = require("libs/Doctrine")
 local Telemetry = require("libs/Telemetry")
+local Strategy = require("libs/Strategy")
 local tests = require("tests")
 local ChunkUtils = require("libs/ChunkUtils")
 local Upgrade = require("libs/Upgrade")
@@ -55,6 +56,10 @@ local UNIT_DEATH_POINT_COST = Constants.UNIT_DEATH_POINT_COST
 local DEFENSE_TURRET_TYPES = Constants.DEFENSE_TURRET_TYPES
 local DEFENSE_ELECTRIC_FALLBACK_RADIUS = Constants.DEFENSE_ELECTRIC_FALLBACK_RADIUS
 local DOCTRINE_DAMAGE_FILTER = Constants.DOCTRINE_DAMAGE_FILTER
+local BREACH_ENTITY_TYPES = Constants.BREACH_ENTITY_TYPES
+local SQUAD_VISIT_TICKS = Constants.SQUAD_VISIT_TICKS
+
+local mCeil = math.ceil
 local DEFENSE_THREAT_PER_KILL = Constants.DEFENSE_THREAT_PER_KILL
 local DEFENSE_THREAT_SCOUT_MULTIPLIER = Constants.DEFENSE_THREAT_SCOUT_MULTIPLIER
 local DEFENSE_THREAT_TURRET_DESTROYED_FACTOR = Constants.DEFENSE_THREAT_TURRET_DESTROYED_FACTOR
@@ -308,6 +313,7 @@ local function initializeLibraries(addProperties)
     Squad.init(Universe)
     Doctrine.init(Universe)
     Telemetry.init(Universe)
+    Strategy.init(Universe)
     BaseUtils.init(Universe)
     Processor.init(Universe)
     MapUtils.init(Universe)
@@ -382,10 +388,13 @@ local function onModSettingsChange(event)
     Universe["enabledPurpleSettlerCloud"] = settings.global["rampant--enabledPurpleSettlerCloud"].value
     Universe["squadCompressionThreshold"] = settings.global["rampant--squadCompressionThreshold"].value
 
-    Universe["AI_MAX_SQUAD_COUNT"] = settings.global["rampant--maxNumberOfSquads"].value
-    Universe["AI_MAX_BUILDER_COUNT"] = settings.global["rampant--maxNumberOfBuilders"].value
-    Universe["AI_MAX_VANILLA_SQUAD_COUNT"] = Universe["AI_MAX_SQUAD_COUNT"] * 0.65
-    Universe["AI_MAX_VANILLA_BUILDER_COUNT"] = Universe["AI_MAX_BUILDER_COUNT"] * 0.65
+    -- squad and builder caps scale with the hive up to these ceilings, see Strategy.updateCaps
+    Universe["squadCeiling"] = settings.global["rampant--squadCeiling"].value
+    Universe["builderCeiling"] = settings.global["rampant--builderCeiling"].value
+    Universe["squadSizeCeiling"] = settings.global["rampant--squadSizeCeiling"].value
+    Universe["incomeScalesWithDefenses"] = settings.global["rampant--incomeScalesWithDefenses"].value
+    Universe.capsTick = nil
+    Strategy.updateCaps(game.tick)
     Universe["MAX_BASE_MUTATIONS"] = settings.global["rampant--max-base-mutations"].value
 
     Universe["MAX_BASE_ALIGNMENT_HISTORY"] = settings.global["rampant--maxBaseAlignmentHistory"].value
@@ -401,6 +410,8 @@ local function onModSettingsChange(event)
     Universe["printTactics"] = settings.global["rampant--printTactics"].value
     Universe["enableEvolvingDoctrine"] = settings.global["rampant--enableEvolvingDoctrine"].value
     Universe["writeTelemetry"] = settings.global["rampant--writeTelemetry"].value
+    Universe["enableOffensives"] = settings.global["rampant--enableOffensives"].value
+    Universe["evolutionGatedTactics"] = settings.global["rampant--evolutionGatedTactics"].value
     if Universe.writeTelemetry then
         Telemetry.record("session", {
                 version = script.active_mods["Rampant"],
@@ -413,6 +424,10 @@ local function onModSettingsChange(event)
                 awake = Universe.awake,
                 peaceTimeEndsTick = Universe.initialPeaceTime,
                 attackWaveMaxSize = Universe.attackWaveMaxSize,
+                squadCeiling = Universe.squadCeiling,
+                builderCeiling = Universe.builderCeiling,
+                squadSizeCeiling = Universe.squadSizeCeiling,
+                incomeScalesWithDefenses = Universe.incomeScalesWithDefenses,
                 maxSquads = Universe.AI_MAX_SQUAD_COUNT
         })
     end
@@ -423,7 +438,7 @@ local function onModSettingsChange(event)
 end
 
 local function onConfigChanged()
-    game.print("Rampant - Version 3.8.2")
+    game.print("Rampant - Version 3.11.0")
     initializeLibraries(true)
     Upgrade.attempt()
     Doctrine.upgradeSaved()
@@ -676,6 +691,9 @@ local function onDeath(event)
                 if DEFENSE_TURRET_TYPES[entityType] then
                     -- a broken turret makes this stretch of the perimeter weaker
                     scaleDefenseThreat(chunk, DEFENSE_THREAT_TURRET_DESTROYED_FACTOR, tick)
+                end
+                if BREACH_ENTITY_TYPES[entityType] and Doctrine.tacticUnlocked("breaches", surface) then
+                    Strategy.recordBreach(map, chunk, entityPosition, entity.name, tick, entityType)
                 end
                 drained = (entityType == "electric-turret") and isDrained(chunk, tick)
                 local credited = false
@@ -977,11 +995,8 @@ local function onGroupFinishedGathering(event)
     local squad = Universe.groupNumberToSquad[group.unique_id]
     if squad then
         if squad.settler then
-            if (Universe.builderCount <= Universe.AI_MAX_BUILDER_COUNT) then
-                squadDispatch(squad, event.tick)
-            else
-                group.destroy()
-            end
+            -- the builder cap is enforced when settlers form
+            squadDispatch(squad, event.tick)
         else
             local chunk = getChunkByPosition(map, squad.group.position)
             if (chunk ~= -1) and (chunk[BASE_PHEROMONE] < 0.0001) and (chunk[PLAYER_PHEROMONE] < 0.0001) then
@@ -1142,6 +1157,8 @@ script.on_event(defines.events.on_tick,
                         planning(gameRef.forces.enemy.get_evolution_factor())
                         processHives(tick)
                         Doctrine.processAttacks(tick)
+                        Strategy.process(tick)
+                        Strategy.updateCaps(tick)
                         cleanHivesData()
                     elseif (pick == 1) then
                         processPlayers(gameRef.connected_players, tick)
@@ -1168,7 +1185,14 @@ script.on_event(defines.events.on_tick,
 
                     processBaseAIs(tick)
                     processNests(tick)
-                    cleanSquads(tick)
+                    -- see every squad at least once a second however many there are
+                    local squadVisits = mCeil((Universe.squadCount + Universe.builderCount) / SQUAD_VISIT_TICKS)
+                    if (squadVisits < 1) then
+                        squadVisits = 1
+                    end
+                    for _=1,squadVisits do
+                        cleanSquads(tick)
+                    end
 
                     -- game.print({"", "--dispatch4 ", profiler, " , ", pick," , ",math.random()})
 end)
@@ -1465,3 +1489,19 @@ local function rampantDoctrines(event)
 end
 
 commands.add_command('rampantDoctrines', "Lists each surface's evolving attack doctrines and their fitness", rampantDoctrines)
+
+local function rampantStrategy(event)
+    local player = event.player_index and game.get_player(event.player_index)
+    local printer = (player and player.print) or game.print
+    local tick = game.tick
+    for _, map in pairs(Universe.maps) do
+        if map.surface.valid and (map.perimeter or map.doctrine) then
+            local lines = Strategy.describe(map, tick)
+            for i=1,#lines do
+                printer(lines[i])
+            end
+        end
+    end
+end
+
+commands.add_command('rampantStrategy', "Lists the known sectors of your defenses, weakest first, and the joint offensives underway", rampantStrategy)

@@ -26,6 +26,7 @@ local TargetPosition
 local SearchPath
 local Queries
 local ScoringTick = 0
+local ScoringBreaches = false
 local ScoringAversion = 0
 
 -- imports
@@ -35,6 +36,7 @@ local MapUtils = require("MapUtils")
 local BaseUtils = require("BaseUtils")
 local Doctrine = require("Doctrine")
 local Telemetry = require("Telemetry")
+local Strategy = require("Strategy")
 local MathUtils = require("MathUtils")
 local ChunkPropertyUtils = require("ChunkPropertyUtils")
 local Utils = require("Utils")
@@ -76,6 +78,7 @@ local PLAYER_PHEROMONE_MULTIPLER = Constants.PLAYER_PHEROMONE_MULTIPLER
 local DEFINES_DISTRACTION_NONE = defines.distraction.none
 local DEFINES_DISTRACTION_BY_ENEMY = defines.distraction.by_enemy
 local DEFINES_DISTRACTION_BY_ANYTHING = defines.distraction.by_anything
+local DEFINES_DISTRACTION_BY_DAMAGE = defines.distraction.by_damage
 local COOLDOWN_RETREAT = Constants.COOLDOWN_RETREAT
 
 local CHUNK_SIZE = Constants.CHUNK_SIZE
@@ -123,7 +126,17 @@ local SUPPORT_SPACING = Constants.SUPPORT_SPACING
 local SUPPORT_ROW_GAP = Constants.SUPPORT_ROW_GAP
 local SUPPORT_FAN_ANGLE = Constants.SUPPORT_FAN_ANGLE
 local SUPPORT_FIRE_CLEARANCE = Constants.SUPPORT_FIRE_CLEARANCE
-local SUPPORT_SLOT_TRIES = Constants.SUPPORT_SLOT_TRIES
+local SUPPORT_MAX_ROWS = Constants.SUPPORT_MAX_ROWS
+local SUPPORT_MIN_RADIUS = Constants.SUPPORT_MIN_RADIUS
+local POWER_EDGE_MARGIN = Constants.POWER_EDGE_MARGIN
+local OFFENSIVE_MOVE_TIMEOUT = Constants.OFFENSIVE_MOVE_TIMEOUT
+local REGROUP_FRACTION = Constants.REGROUP_FRACTION
+local SQUAD_SIZE_PER_STRENGTH = Constants.SQUAD_SIZE_PER_STRENGTH
+local SQUAD_MAX_RECRUIT_RADIUS = Constants.SQUAD_MAX_RECRUIT_RADIUS
+local SURGE_RANGE = Constants.SURGE_RANGE
+local SURGE_REDIRECT_RANGE = Constants.SURGE_REDIRECT_RANGE
+local SURGE_STAGING_TIMEOUT = Constants.SURGE_STAGING_TIMEOUT
+local TRIPLE_CHUNK_SIZE = Constants.TRIPLE_CHUNK_SIZE
 
 local FLANK_OFFSET = Constants.FLANK_OFFSET
 local FLANK_ADVANCE = Constants.FLANK_ADVANCE
@@ -156,6 +169,7 @@ local mSqrt = math.sqrt
 local mCos = math.cos
 local mSin = math.sin
 local mAtan2 = math.atan2
+local mAbs = math.abs
 
 local TICKS_A_SECOND = Constants.TICKS_A_SECOND
 
@@ -264,6 +278,10 @@ local function scoreAttackLocation(neighborChunk)
     if Universe.enableScouting then
         -- steer toward the least defended part of the perimeter
         damage = damage / (1 + (getDefenseThreat(neighborChunk, ScoringTick) * ScoringAversion))
+    end
+    if ScoringBreaches then
+        -- pour through recent breaches
+        damage = damage * Strategy.breachBonus(neighborChunk, ScoringTick)
     end
     return damage, preferred
 end
@@ -761,6 +779,7 @@ local function surveyTurrets(surface, position, cache)
             force = Universe.playerForces
     })
     local networks = {}
+    local electricTurrets = {}
     for i=1,#turrets do
         local turret = turrets[i]
         if (turret.type == "electric-turret") then
@@ -768,12 +787,30 @@ local function surveyTurrets(surface, position, cache)
             if networkId then
                 networks[networkId] = true
                 cache.hasElectric = true
+                electricTurrets[#electricTurrets+1] = turret.position
             end
         else
             cache.hasGuns = true
         end
     end
     cache.networks = networks
+    cache.electricTurrets = electricTurrets
+end
+
+--[[
+    Poles that directly power a turret, the ones on the defense line, rather
+    than substations deep inside the base that share the network.
+--]]
+local function feedsTurret(pole, turretPositions)
+    local reach = pole.prototype.get_supply_area_distance() + POWER_EDGE_MARGIN
+    local polePosition = pole.position
+    for i=1,#turretPositions do
+        local turretPosition = turretPositions[i]
+        if (mAbs(turretPosition.x - polePosition.x) <= reach) and (mAbs(turretPosition.y - polePosition.y) <= reach) then
+            return true
+        end
+    end
+    return false
 end
 
 local PRIORITY_FINDERS = {
@@ -785,6 +822,7 @@ local PRIORITY_FINDERS = {
                 return nil
             end
             local networks = cache.networks
+            local electricTurrets = cache.electricTurrets
             return closestTo(surface.find_entities_filtered({
                                  position = position,
                                  radius = SUPPLY_SEARCH_RADIUS,
@@ -794,7 +832,7 @@ local PRIORITY_FINDERS = {
                              origin,
                              function(pole)
                                  local networkId = pole.electric_network_id
-                                 return networkId and networks[networkId]
+                                 return networkId and networks[networkId] and feedsTurret(pole, electricTurrets)
                              end)
         end
     },
@@ -949,9 +987,21 @@ local function findSupportTarget(squad, position, origin)
 end
 
 local function planFireSupport(squad, position, priorityTarget, tick)
-    local target = priorityTarget
-    if not (target and target.valid) then
-        target = findSupportTarget(squad, position, squad.group.position)
+    -- squads of one wave or offensive concentrate their spitters on one target
+    local holder = squad.offensive or squad.attack
+    local focus = holder and holder.focusTarget
+    local target
+    if focus and focus.valid then
+        target = focus
+    else
+        target = priorityTarget
+        if not (target and target.valid) then
+            local origin = (squad.offensive and squad.offensive.objective) or squad.group.position
+            target = findSupportTarget(squad, position, origin)
+        end
+        if holder and target then
+            holder.focusTarget = target
+        end
     end
     if not target then
         return
@@ -981,11 +1031,17 @@ end
 local function firingSlot(bearing, index, perRow, rowRadius)
     local row = mFloor((index - 1) / perRow)
     local column = ((index - 1) % perRow) - ((perRow - 1) / 2)
-    local radius = rowRadius - (row * SUPPORT_ROW_GAP)
+    local radius = mMax(SUPPORT_MIN_RADIUS, rowRadius - (row * SUPPORT_ROW_GAP))
     local angle = bearing + ((column * SUPPORT_SPACING) / radius)
     return radius, angle
 end
 
+--[[
+    Spitters take a firing spot on the line at their full range, returning
+    fire on the way. Spitters that do not fit on the line, or whose spot is
+    burning, attack the target directly, which stops them as soon as it is in
+    range like vanilla spitters, rather than sending them on a detour.
+--]]
 local function detachFireSupport(squad, tick)
     local group = squad.group
     local target = squad.supportTarget
@@ -1008,64 +1064,75 @@ local function detachFireSupport(squad, tick)
     local targetName = target.name
     local targetPosition = target.position
     local bearing = mAtan2(groupPosition.y - targetPosition.y, groupPosition.x - targetPosition.x)
-    -- as many spots per row as fit across the fan at the shortest spitter range
+    -- the line sits at the shortest range in the group so every spitter on it can fire
     local shortest = MAGIC_MAXIMUM_NUMBER
     for i=1,#spitters do
         shortest = mMin(shortest, spitterRange(spitters[i]))
     end
-    -- every row is measured from the shortest range so rows never overlap
     local rowRadius = shortest - SUPPORT_RANGE_MARGIN
     local perRow = mMax(1, mFloor(((2 * SUPPORT_FAN_ANGLE) * rowRadius) / SUPPORT_SPACING) + 1)
+    local lineSlots = perRow * SUPPORT_MAX_ROWS
+
+    local attackTarget = {
+        type = DEFINES_COMMAND_ATTACK,
+        target = target,
+        distraction = DEFINES_DISTRACTION_BY_ENEMY
+    }
+    local clearArea = {
+        type = DEFINES_COMMAND_ATTACK_AREA,
+        destination = {x = targetPosition.x, y = targetPosition.y},
+        radius = CHUNK_SIZE,
+        distraction = DEFINES_DISTRACTION_BY_ENEMY
+    }
+    local directCommand = {
+        type = DEFINES_COMMAND_COMPOUND,
+        structure_type = DEFINES_COMPOUND_COMMAND_RETURN_LAST,
+        commands = {attackTarget, clearArea}
+    }
 
     local leftGroup = 0
+    local onLine = 0
     local avoidedFire = 0
-    local slot = 1
     for i=1,#spitters do
         local unit = spitters[i]
         local spot
-        -- try this slot and a few more along the line if it is on fire
-        for _=1,SUPPORT_SLOT_TRIES do
-            local radius, angle = firingSlot(bearing, slot, perRow, rowRadius)
-            slot = slot + 1
+        if (i <= lineSlots) then
+            local radius, angle = firingSlot(bearing, i, perRow, rowRadius)
             local candidate = {
                 x = targetPosition.x + (radius * mCos(angle)),
                 y = targetPosition.y + (radius * mSin(angle))
             }
-            if burning(surface, candidate) then
-                avoidedFire = avoidedFire + 1
-            else
-                spot = surface.find_non_colliding_position(unit.name, candidate, 4, 0.5)
-                if spot then
-                    break
+            -- a spot that is not a number is never handed to the game
+            if (candidate.x == candidate.x) and (candidate.y == candidate.y) then
+                if burning(surface, candidate) then
+                    avoidedFire = avoidedFire + 1
+                else
+                    spot = surface.find_non_colliding_position(unit.name, candidate, 4, 0.5)
                 end
             end
         end
         local commandable = unit.commandable
-        if spot and commandable then
-            commandable.set_command({
-                    type = DEFINES_COMMAND_COMPOUND,
-                    structure_type = DEFINES_COMPOUND_COMMAND_RETURN_LAST,
-                    commands = {
-                        {
-                            -- take the firing spot without stopping to fight on the way
-                            type = DEFINES_COMMAND_GO_TO_LOCATION,
-                            destination = spot,
-                            radius = 1,
-                            distraction = DEFINES_DISTRACTION_NONE
-                        },
-                        {
-                            type = DEFINES_COMMAND_ATTACK,
-                            target = target,
-                            distraction = DEFINES_DISTRACTION_BY_ENEMY
-                        },
-                        {
-                            type = DEFINES_COMMAND_ATTACK_AREA,
-                            destination = {x = targetPosition.x, y = targetPosition.y},
-                            radius = CHUNK_SIZE,
-                            distraction = DEFINES_DISTRACTION_BY_ENEMY
+        if commandable then
+            if spot then
+                onLine = onLine + 1
+                commandable.set_command({
+                        type = DEFINES_COMMAND_COMPOUND,
+                        structure_type = DEFINES_COMPOUND_COMMAND_RETURN_LAST,
+                        commands = {
+                            {
+                                -- take the spot, returning fire if shot on the way
+                                type = DEFINES_COMMAND_GO_TO_LOCATION,
+                                destination = spot,
+                                radius = 1,
+                                distraction = DEFINES_DISTRACTION_BY_DAMAGE
+                            },
+                            attackTarget,
+                            clearArea
                         }
-                    }
-            })
+                })
+            else
+                commandable.set_command(directCommand)
+            end
             Doctrine.detachUnit(unit, squad, tick)
             if not commandable.parent_group then
                 leftGroup = leftGroup + 1
@@ -1073,7 +1140,7 @@ local function detachFireSupport(squad, tick)
         end
     end
 
-    printTactic("Fire support: " .. leftGroup .. " spitters fan out on " .. targetName, surface, targetPosition)
+    printTactic("Fire support: " .. leftGroup .. " spitters on " .. targetName, surface, targetPosition)
     if Telemetry.enabled() then
         local dx = targetPosition.x - groupPosition.x
         local dy = targetPosition.y - groupPosition.y
@@ -1082,11 +1149,13 @@ local function detachFireSupport(squad, tick)
                 group = squad.groupNumber,
                 spitters = #spitters,
                 leftGroup = leftGroup,
+                onLine = onLine,
+                direct = leftGroup - onLine,
                 members = #members,
                 target = targetName,
                 distance = mSqrt((dx * dx) + (dy * dy)),
                 perRow = perRow,
-                rows = mCeil(#spitters / perRow),
+                rows = mMin(SUPPORT_MAX_ROWS, mCeil(#spitters / perRow)),
                 avoidedFire = avoidedFire,
                 position = Telemetry.position(targetPosition)
         })
@@ -1107,9 +1176,19 @@ local function checkFireSupport(squad, tick)
     local groupPosition = squad.group.position
     local target = squad.supportTarget
     if not target.valid then
-        target = findSupportTarget(squad, groupPosition, groupPosition)
-        if not target then
-            return
+        -- the target fell, follow the shared focus or pick the nearest turret
+        local holder = squad.offensive or squad.attack
+        local focus = holder and holder.focusTarget
+        if focus and focus.valid then
+            target = focus
+        else
+            target = findSupportTarget(squad, groupPosition, groupPosition)
+            if not target then
+                return
+            end
+            if holder then
+                holder.focusTarget = target
+            end
         end
         squad.supportTarget = target
     end
@@ -1121,9 +1200,111 @@ local function checkFireSupport(squad, tick)
     end
 end
 
+--[[
+    A squad worn down after reaching the defenses sends its survivors to join a
+    squad of its base's next wave, instead of trickling into the guns alone.
+--]]
+local function regroupSurvivors(squad, tick)
+    local formed = squad.formedUnits
+    if not formed then
+        return false
+    end
+    local group = squad.group
+    local members = group.members
+    if (#members == 0) or (#members >= (formed * REGROUP_FRACTION)) then
+        return false
+    end
+    if not Doctrine.tacticUnlocked("regroup", squad.map.surface) then
+        return false
+    end
+    local nextAttack = squad.base.attack
+    if (not nextAttack) or (nextAttack == squad.attack) or nextAttack.launched then
+        return false
+    end
+    local host
+    for _, staged in pairs(nextAttack.squads) do
+        if (staged ~= squad) and staged.group.valid then
+            host = staged
+            break
+        end
+    end
+    if not host then
+        return false
+    end
+    local hostGroup = host.group
+    local survivors = #members
+    local position = group.position
+    for i=1,#members do
+        local unit = members[i]
+        if unit.valid then
+            hostGroup.add_member(unit)
+        end
+    end
+    printTactic("Regroup: " .. survivors .. " survivors join the next wave", squad.map.surface, position)
+    if Telemetry.enabled() then
+        Telemetry.record("regroup", {
+                fromAttack = squad.attack and squad.attack.id,
+                toAttack = nextAttack.id,
+                units = survivors,
+                formed = formed
+        })
+    end
+    return true
+end
+
+--[[
+    Joint offensive phases: go to this squad's rally point, wait there until
+    the offensive is ready, then charge the objective with fire support
+    focused on one target. Returns true while the offensive is steering the squad.
+--]]
+local function advanceOffensive(squad, offensive, plan, tick)
+    local group = squad.group
+    local phase = squad.offensivePhase
+    if not phase then
+        offensive.squads[squad.groupNumber] = squad
+        local rally = findMovementPosition(squad.map.surface, Strategy.rallyPoint(offensive, group.position))
+        if rally then
+            squad.offensivePhase = "moving"
+            -- the walk to the rally point can be long, do not treat it as stuck
+            squad.commandTick = tick + OFFENSIVE_MOVE_TIMEOUT
+            local cmd = Queries.moveCommand
+            cmd.distraction = DEFINES_DISTRACTION_BY_ENEMY
+            setPositionInCommand(cmd, rally)
+            group.set_command(cmd)
+            return true
+        end
+        phase = "moving"
+    end
+    if (phase == "moving") then
+        squad.offensivePhase = "rallied"
+    end
+    if not Strategy.offensiveReady(offensive, tick) then
+        squad.commandTick = tick + COMMAND_TIMEOUT
+        group.set_command(STAGING_COMMAND)
+        return true
+    end
+
+    squad.offensivePhase = "engaged"
+    Squad.decompressSquad(squad, tick)
+    local objective = offensive.objective
+    if plan then
+        Doctrine.setImpact(plan, objective)
+    end
+    if (squad.support ~= false) and (not squad.supportSent) then
+        squad.supportSent = true
+        planFireSupport(squad, objective, nil, tick)
+    end
+    local cmd = Queries.attackCommand
+    cmd.distraction = DEFINES_DISTRACTION_BY_ENEMY
+    setPositionInCommand(cmd, objective)
+    group.set_command(cmd)
+    return true
+end
+
 local function attackMove(squad, tick)
     ScoringTick = tick
     ScoringAversion = squad.aversion or DEFENSE_THREAT_WEIGHT
+    ScoringBreaches = Doctrine.tacticUnlocked("breaches", squad.map.surface)
     local group = squad.group
 
     local groupPosition = group.position
@@ -1134,16 +1315,71 @@ local function attackMove(squad, tick)
     if squadChunk ~= -1 then
         addDeathGenerator(squadChunk, -FIVE_DEATH_PHEROMONE_GENERATOR_AMOUNT)
     end
+    local plan = squad.attack
+    local offensive = squad.offensive
+    local gathering = offensive and (not offensive.finished) and (squad.offensivePhase ~= "engaged")
     if chunk ~= -1 then
         addSquadToChunk(chunk, squad)
-        addMovementPenalty(squad, chunk)
-        if not squad.group.valid then
+        -- a squad waiting at its rally point stays in one chunk on purpose, the stuck
+        -- penalty would turn it kamikaze and then delete it before the charge
+        if not gathering then
+            addMovementPenalty(squad, chunk)
+            if not squad.group.valid then
+                return
+            end
+        end
+    end
+
+    if squad.reached and regroupSurvivors(squad, tick) then
+        return
+    end
+
+    if gathering then
+        if advanceOffensive(squad, offensive, plan, tick) then
             return
         end
     end
 
-    local plan = squad.attack
-    if plan and plan.detour and (not squad.detourAssigned) then
+    if (not squad.surgeSent) and (not squad.scout) and (not gathering) then
+        local surge = plan and plan.surge
+        local redirected = false
+        if (not surge) and Doctrine.tacticUnlocked("surges", map.surface) then
+            -- squads already raiding nearby divert to a breakthrough
+            surge = Strategy.activeSurge(map, groupPosition, SURGE_REDIRECT_RANGE, tick)
+            redirected = surge ~= nil
+        end
+        if surge and (tick < surge.untilTick) then
+            squad.surgeSent = true
+            Squad.decompressSquad(squad, tick)
+            local breach = {x = surge.x, y = surge.y}
+            if plan then
+                Doctrine.setImpact(plan, breach)
+            end
+            if redirected then
+                surge.redirects = surge.redirects + 1
+            end
+            if Telemetry.enabled() then
+                Telemetry.record("surge_charge", {
+                        attack = plan and plan.id,
+                        group = squad.groupNumber,
+                        sector = surge.key,
+                        redirected = redirected,
+                        members = #group.members
+                })
+            end
+            if (squad.support ~= false) and (not squad.supportSent) then
+                squad.supportSent = true
+                planFireSupport(squad, breach, nil, tick)
+            end
+            local cmd = Queries.attackCommand
+            cmd.distraction = DEFINES_DISTRACTION_BY_ENEMY
+            setPositionInCommand(cmd, breach)
+            group.set_command(cmd)
+            return
+        end
+    end
+
+    if plan and plan.detour and (not plan.offensive) and (not squad.detourAssigned) then
         -- lone squads take their attack's detour here, wave squads get it at launch
         squad.detourAssigned = true
         local axisX, axisY = findAttackAxis(squad)
@@ -1234,17 +1470,31 @@ local function attackMove(squad, tick)
 
         if plan then
             Doctrine.setImpact(plan, position)
+            if not squad.reached then
+                -- partial credit for getting to the defenses
+                squad.reached = true
+                plan.reached = (plan.reached or 0) + 1
+            end
         end
 
         local target, priority
-        if Universe.enableSupplyTargeting and not squad.scout then
+        -- squads without a doctrine get the default priorities and fire support once unlocked
+        local priorities = squad.priorities
+        if (not priorities) and Doctrine.tacticUnlocked("priorities", map.surface) then
+            priorities = PRIORITY_DEFAULTS
+        end
+        if Universe.enableSupplyTargeting and priorities and not squad.scout then
             target, priority = findPriorityTarget(map.surface,
                                                   position,
                                                   groupPosition,
-                                                  squad.priorities or PRIORITY_DEFAULTS)
+                                                  priorities)
         end
 
-        if (squad.support ~= false) and (not squad.scout) and (not squad.supportSent) then
+        local support = squad.support
+        if (support == nil) then
+            support = Doctrine.tacticUnlocked("support", map.surface)
+        end
+        if support and (not squad.scout) and (not squad.supportSent) then
             squad.supportSent = true
             -- spitters shoot the priority target over the walls, never chase players
             local supportTarget = target
@@ -1387,11 +1637,12 @@ local function launchWave(wave, tick)
         return
     end
 
-    local genes = wave.genome.genes
+    local genes = wave.genes
     local staggerTicks = mFloor(genes.stagger * TICKS_A_SECOND)
     local detour = wave.detour
     local axisX, axisY
-    if wave.pincer or wave.feint or detour then
+    -- squads of an offensive head for their rally points, no flanks or detours
+    if (wave.pincer or wave.feint or detour) and (not wave.offensive) then
         axisX, axisY = findAttackAxis(members[1])
     end
 
@@ -1557,11 +1808,12 @@ local function joinWave(base, attack, squad, cost, tick)
     if (attack.count == 0) then
         local size = 1
         if Universe.enableCoordinatedWaves then
-            size = mMin(attack.genome.genes.squads, mFloor(base.unitPoints / cost))
+            size = mMin(attack.genes.squads, mFloor(base.unitPoints / cost))
         end
         attack.size = mMax(size, 1)
-        attack.deadline = tick + WAVE_STAGING_TIMEOUT
-        local genes = attack.genome.genes
+        -- surging waves barely stage, the breach will not stay open
+        attack.deadline = tick + ((attack.surge and SURGE_STAGING_TIMEOUT) or WAVE_STAGING_TIMEOUT)
+        local genes = attack.genes
         attack.pincer = Universe.random() < genes.spread
         attack.feint = Universe.random() < genes.feint
         if (attack.size > 1) then
@@ -1846,7 +2098,8 @@ function Squad.createSquad(position, map, group, settlers, base)
 end
 
 function Squad.calculateKamikazeSquadThreshold(memberCount)
-    local threshold = (memberCount / Universe.attackWaveMaxSize) * 0.2 + (Universe.evolutionLevel * 0.2)
+    -- size adds at most what a full base-size squad did, so huge squads are not all kamikaze
+    local threshold = (mMin(memberCount / Universe.attackWaveMaxSize, 1) * 0.2) + (Universe.evolutionLevel * 0.2)
     return threshold
 end
 
@@ -2059,7 +2312,7 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
         end
     else
         if lackingPoints
-            or (Universe.builderCount > Universe.AI_MAX_BUILDER_COUNT)
+            or (Universe.builderCount >= Universe.AI_MAX_BUILDER_COUNT)
             or (not vengence and (base.sentExpansionGroups >= base.maxExpansionGroups))
             or (Universe.random() > Universe.formSquadThreshold)
         then
@@ -2112,12 +2365,16 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
     elseif attacker then
         scaledWaveSize = attackWaveScaling()
         if attack then
-            scaledWaveSize = mMax(1, mMin(mCeil(scaledWaveSize * attack.genome.genes.sizeScale),
-                                          Universe.attackWaveMaxSize))
+            scaledWaveSize = mMax(1, mMin(mCeil(scaledWaveSize * attack.genes.sizeScale * (attack.sizeMultiplier or 1)),
+                                          Universe.squadSizeCeiling))
         end
     else
         scaledWaveSize = settlerWaveScaling()
     end
+    -- big squads search further for recruits, a 96 tile radius cannot fill a 400 unit squad
+    local recruitRadius = mMin(SQUAD_MAX_RECRUIT_RADIUS,
+                               TRIPLE_CHUNK_SIZE * mSqrt(mMax(1, scaledWaveSize / mMax(Universe.attackWaveSize or 1, 1))))
+    Queries.formCommand.unit_search_distance = recruitRadius
     local foundUnits = 0
     local recruitedSpitters = 0
     if attack and attack.evaluate then
@@ -2125,7 +2382,7 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
                                                    squad.group,
                                                    squadPosition,
                                                    scaledWaveSize,
-                                                   attack.genome.genes.spitters)
+                                                   attack.genes.spitters)
     end
     local recruited = foundUnits
     if (foundUnits < scaledWaveSize) then
@@ -2133,23 +2390,9 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
         Queries.formCommand.unit_count = scaledWaveSize - foundUnits
         foundUnits = foundUnits + surface.set_multi_command(Queries.formCommand)
     end
-    if Telemetry.enabled() then
-        local kind = (scoutSize and "scout") or (vengence and "vengeance") or (attacker and "attack") or "settler"
-        Telemetry.record("squad_formed", {
-                kind = kind,
-                surface = surface.name,
-                base = base.id,
-                attack = attack and attack.id,
-                group = squad.groupNumber,
-                requested = scaledWaveSize,
-                found = foundUnits,
-                recruitedByMix = recruited,
-                recruitedSpitters = recruitedSpitters,
-                spitterShare = attack and attack.genome.genes.spitters,
-                position = Telemetry.position(squadPosition)
-        })
-    end
+    Queries.formCommand.unit_search_distance = TRIPLE_CHUNK_SIZE
     squad.formedTick = game.tick
+    squad.formedUnits = foundUnits
     if (foundUnits == 0) then
         if squad.group.valid then
             squad.group.destroy()
@@ -2176,7 +2419,7 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
     elseif attacker then
         local kamikazeThreshold = Squad.calculateKamikazeSquadThreshold(foundUnits)
         if attack then
-            kamikazeThreshold = kamikazeThreshold + attack.genome.genes.kamikaze
+            kamikazeThreshold = kamikazeThreshold + attack.genes.kamikaze
         end
         squad.kamikaze = Universe.random() < kamikazeThreshold
         Universe.squadCount = Universe.squadCount + 1
@@ -2184,7 +2427,8 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
             base.sentAggressiveGroups = base.sentAggressiveGroups + 1
         end
         if attack then
-            Doctrine.applyToSquad(squad, attack.genome)
+            squad.offensive = attack.offensive
+            Doctrine.applyToSquad(squad, attack.genes)
             joinWave(base, attack, squad, cost, tick)
             Doctrine.addSquad(attack, squad, cost, foundUnits, tick)
         end
@@ -2199,6 +2443,26 @@ local function deploySquad(name, chunk, cost, vengence, attacker, scoutSize, att
     end
 
     squad.rabid = Universe.random() < 0.03
+
+    -- recorded after the attack is registered so the first squad carries its attack id
+    if Telemetry.enabled() then
+        local kind = (scoutSize and "scout") or (vengence and "vengeance") or (attacker and "attack") or "settler"
+        Telemetry.record("squad_formed", {
+                kind = kind,
+                surface = surface.name,
+                base = base.id,
+                attack = attack and attack.id,
+                group = squad.groupNumber,
+                requested = scaledWaveSize,
+                found = foundUnits,
+                recruitedByMix = recruited,
+                recruitedSpitters = recruitedSpitters,
+                spitterShare = attack and attack.genes.spitters,
+                sizeMultiplier = attack and attack.sizeMultiplier,
+                recruitRadius = recruitRadius,
+                position = Telemetry.position(squadPosition)
+        })
+    end
 
     Universe.groupNumberToSquad[squad.groupNumber] = squad
     modifyBaseUnitPoints(base, -cost, name, squadPosition.x, squadPosition.y)
@@ -2249,7 +2513,39 @@ local function getAttackPlan(base, tick)
         or (attack.deadline and (tick >= attack.deadline))
         or ((attack.count == 0) and (attack.context ~= Doctrine.currentContext(base, tick)))
     then
+        if attack and (attack.count == 0) then
+            -- replaced before forming a squad, an offensive should not wait for it
+            attack.abandoned = true
+        end
         attack = Doctrine.newAttack(base, tick)
+        local surge = Doctrine.tacticUnlocked("surges", base.map.surface)
+            and Strategy.activeSurge(base.map, {x = base.x, y = base.y}, SURGE_RANGE, tick)
+        if surge then
+            -- a breakthrough is underway, pour into it instead of starting something new
+            attack.surge = surge
+            attack.detour = nil
+            surge.attacks = surge.attacks + 1
+            if Telemetry.enabled() then
+                Telemetry.record("surge_joined", {
+                        base = base.id,
+                        sector = surge.key,
+                        attacks = surge.attacks
+                })
+            end
+        else
+            attack.offensive = Strategy.assignOffensive(base, attack, tick)
+        end
+        if attack.offensive then
+            -- the offensive picks where to attack
+            attack.detour = nil
+        end
+        -- squads grow with the strength of the defense they are sent against
+        local strength = (attack.offensive and attack.offensive.strength) or Doctrine.currentStrength(base, tick)
+        attack.sizeMultiplier = 1
+        if strength then
+            attack.sizeMultiplier = mMax(1, mMin(1 + (strength * SQUAD_SIZE_PER_STRENGTH),
+                                                 Universe.squadSizeCeiling / mMax(Universe.attackWaveSize or 1, 1)))
+        end
         base.attack = attack
     end
     return attack
@@ -2258,7 +2554,7 @@ end
 function Squad.formSquads(chunk)
     local base = chunk.base
     local tick = game.tick
-    if Universe.enableScouting then
+    if Universe.enableScouting and Doctrine.tacticUnlocked("scouting", base.map.surface) then
         if scoutingBlocksAttack(base, tick) then
             return
         end
@@ -2274,10 +2570,11 @@ function Squad.formSquads(chunk)
         return
     end
     -- timing genes hold the attack back until its window opens
-    if (attack.count == 0) and attack.evaluate and not Doctrine.attackWindowOpen(attack, tick) then
+    if (attack.count == 0) and attack.evaluate and (not attack.surge) and not Doctrine.attackWindowOpen(attack, tick) then
         return
     end
-    deploySquad("Squad", chunk, AI_SQUAD_COST * attack.genome.genes.sizeScale, false, true, nil, attack)
+    -- bigger squads cost proportionally more, so size concentrates force rather than adding it
+    deploySquad("Squad", chunk, AI_SQUAD_COST * attack.genes.sizeScale * (attack.sizeMultiplier or 1), false, true, nil, attack)
 end
 
 function Squad.formVengenceSquad(chunk)
