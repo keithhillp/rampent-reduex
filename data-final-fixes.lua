@@ -36,13 +36,14 @@ end
 for _, projectile in pairs(data.raw["projectile"]) do
     if not projectile.hit_collision_mask then
         projectile.hit_collision_mask = {
-            "player-layer",
-            "train-layer",
-            RampantGlobalVariables.projectileCollisionLayer
+            layers = {
+                player = true,
+                train = true,
+                trigger_target = true
+            }
         }
-    else
-        projectile.hit_collision_mask[#projectile.hit_collision_mask+1] = RampantGlobalVariables.projectileCollisionLayer
     end
+    projectile.hit_collision_mask.layers[RampantGlobalVariables.projectileCollisionLayer] = true
 end
 
 if settings.startup["rampant--removeBloodParticles"].value then

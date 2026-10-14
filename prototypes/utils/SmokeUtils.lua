@@ -166,17 +166,28 @@ function smokeUtils.makeCloud(attributes, attack)
                 name = name,
                 flags = {"not-on-map"},
                 show_when_smoke_off = true,
+                -- Factorio 2.0 removed the single cloud sprite; clouds are now drawn as a
+                -- field of smoke particles like the vanilla poison cloud (scale 3)
+                particle_count = 16,
+                particle_spread = { 1.26 * (attributes.scale or 3), 0.756 * (attributes.scale or 3) },
+                particle_distance_scale_factor = 0.5,
+                particle_scale_factor = { 1, 0.707 },
+                wave_speed = { 1/80, 1/60 },
+                wave_distance = { 0.3, 0.2 },
+                spread_duration_variation = 20,
+                particle_duration_variation = 60 * 3,
+                render_layer = "object",
                 animation =
                     {
-                        filename = "__base__/graphics/entity/cloud/cloud-45-frames.png",
-                        flags = { "compressed" },
-                        priority = "low",
-                        width = 256,
-                        height = 256,
-                        frame_count = 45,
-                        animation_speed = 0.5,
-                        line_length = 7,
-                        scale = attributes.scale or 3,
+                        filename = "__base__/graphics/entity/smoke/smoke.png",
+                        flags = { "smoke" },
+                        priority = "high",
+                        width = 152,
+                        height = 120,
+                        line_length = 5,
+                        frame_count = 60,
+                        shift = {-0.53125, -0.4375},
+                        animation_speed = 0.25
                     },
                 slow_down_factor = attributes.slowdown or 0,
                 affected_by_wind = attributes.wind,
@@ -236,7 +247,7 @@ function smokeUtils.makeSmokeWithGlow(attributes)
                 animation =
                     {
                         filename = "__base__/graphics/entity/fire-smoke/fire-smoke.png",
-                        flags = { "compressed" },
+                        flags = { "always-compressed" },
                         line_length = 8,
                         width = 253,
                         height = 210,
@@ -250,7 +261,7 @@ function smokeUtils.makeSmokeWithGlow(attributes)
                 glow_animation =
                     {
                         filename = "__base__/graphics/entity/fire-smoke/fire-smoke-glow.png",
-                        flags = { "compressed" },
+                        flags = { "always-compressed" },
                         blend_mode = "additive",
                         line_length = 8,
                         width = 253,
@@ -283,7 +294,7 @@ function smokeUtils.makeSmokeWithoutGlow(attributes)
                 animation =
                     {
                         filename = "__base__/graphics/entity/fire-smoke/fire-smoke.png",
-                        flags = { "compressed" },
+                        flags = { "always-compressed" },
                         line_length = 8,
                         width = 253,
                         height = 210,
@@ -329,7 +340,7 @@ function smokeUtils.makeSmokeAddingFuel(attributes)
                     animation =
                         {
                             filename = "__base__/graphics/entity/fire-smoke/fire-smoke.png",
-                            flags = { "compressed" },
+                            flags = { "always-compressed" },
                             line_length = 8,
                             width = 253,
                             height = 210,
@@ -369,7 +380,7 @@ function smokeUtils.makeSmokeBasic(attributes)
                 direction_count = 1,
                 shift = {-0.53125, -0.4375},
                 priority = "high",
-                flags = { "compressed" },
+                flags = { "always-compressed" },
                 animation_speed = 0.25,
                 filename = "__base__/graphics/entity/smoke/smoke.png"
             },

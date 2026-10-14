@@ -17,6 +17,7 @@
 local biterUtils = {}
 
 local sounds = require("__base__.prototypes.entity.sounds")
+local enemyAutoplace = require("__base__.prototypes.entity.enemy-autoplace-utils")
 local particleUtils = require("ParticleUtils")
 local unitSpawnerUtils = require("UnitSpawnerUtils")
 local unitUtils = require("UnitUtils")
@@ -26,7 +27,6 @@ local biterdieanimation = unitUtils.biterdieanimation
 local biterattackanimation = unitUtils.biterattackanimation
 local biterrunanimation = unitUtils.biterrunanimation
 local spitter_alternative_attacking_animation_sequence = unitUtils.spitter_alternative_attacking_animation_sequence
-local spawner_integration = unitSpawnerUtils.spawner_integration
 local spawner_idle_animation = unitSpawnerUtils.spawner_idle_animation
 local spawner_die_animation = unitSpawnerUtils.spawner_die_animation
 local wormFoldedAnimation = wormUtils.wormFoldedAnimation
@@ -43,6 +43,12 @@ local spitter_water_reflection = unitUtils.spitter_water_reflection
 local DISALLOW_FRIENDLY_FIRE = settings.startup["rampant--disallowFriendlyFire"].value
 
 local corpseSet = {}
+
+-- Factorio 2.0 moved audible_distance_modifier from the play-sound effect into the sound
+local function withAudibleDistance(sound, modifier)
+    sound.audible_distance_modifier = modifier
+    return sound
+end
 -- local corpseCount = 0
 
 local function makeSpitterCorpse(attributes)
@@ -61,7 +67,6 @@ local function makeSpitterCorpse(attributes)
         name = name,
         icon = "__base__/graphics/icons/big-biter-corpse.png",
         icon_size = 64,
-        icon_mipmaps = 4,
         selectable_in_game = false,
         selection_box = {{-1, -1}, {1, 1}},
         subgroup="corpses",
@@ -93,24 +98,11 @@ local function makeSpitterCorpse(attributes)
                     line_length = 4,
                     variation_count = 4,
                     frame_count = 1,
-                    width = 84,
-                    height = 68,
-                    shift = util.by_pixel(1, 0),
+                    width = 164,
+                    height = 134,
+                    shift = util.by_pixel(-0.5,-0.5),
                     tint = attributes.tint2 or attributes.tint or {r = 0.6 * d * a, g = 0.1 * d * a, b = 0.6 * d * a, a = a},
-                    scale = attributes.scale * 2,
-                    hr_version =
-                        {
-                            filename = "__base__/graphics/entity/biter/hr-blood-puddle-var-main.png",
-                            flags = { "low-object" },
-                            line_length = 4,
-                            variation_count = 4,
-                            frame_count = 1,
-                            width = 164,
-                            height = 134,
-                            shift = util.by_pixel(-0.5,-0.5),
-                            tint = attributes.tint2 or attributes.tint or {r = 0.6 * d * a, g = 0.1 * d * a, b = 0.6 * d * a, a = a},
-                            scale = attributes.scale
-                        }
+                    scale = attributes.scale
                 }
         }
 
@@ -136,7 +128,6 @@ local function makeBiterCorpse(attributes)
         name = name,
         icon = "__base__/graphics/icons/small-biter-corpse.png",
         icon_size = 64,
-        icon_mipmaps = 4,
         selection_box = {{-0.8, -0.8}, {0.8, 0.8}},
         selectable_in_game = false,
         subgroup="corpses",
@@ -168,24 +159,11 @@ local function makeBiterCorpse(attributes)
                     line_length = 4,
                     variation_count = 4,
                     frame_count = 1,
-                    width = 84,
-                    height = 68,
-                    shift = util.by_pixel(1, 0),
+                    width = 164,
+                    height = 134,
+                    shift = util.by_pixel(-0.5,-0.5),
                     tint = attributes.tint2 or attributes.tint or {r = 0.6 * d * a, g = 0.1 * d * a, b = 0.6 * d * a, a = a},
-                    scale = attributes.scale * 2,
-                    hr_version =
-                        {
-                            filename = "__base__/graphics/entity/biter/hr-blood-puddle-var-main.png",
-                            flags = { "low-object" },
-                            line_length = 4,
-                            variation_count = 4,
-                            frame_count = 1,
-                            width = 164,
-                            height = 134,
-                            shift = util.by_pixel(-0.5,-0.5),
-                            tint = attributes.tint2 or attributes.tint or {r = 0.6 * d * a, g = 0.1 * d * a, b = 0.6 * d * a, a = a},
-                            scale = attributes.scale
-                        }
+                    scale = attributes.scale
                 }
         }
 
@@ -212,7 +190,6 @@ local function makeUnitSpawnerCorpse(attributes)
                 flags = {"placeable-neutral", "placeable-off-grid", "not-on-map"},
                 icon = "__base__/graphics/icons/biter-spawner-corpse.png",
                 icon_size = 64,
-                icon_mipmaps = 4,
                 collision_box = {{-2, -2}, {2, 2}},
                 selection_box = {{-2, -2}, {2, 2}},
                 selectable_in_game = false,
@@ -249,7 +226,6 @@ local function makeWormCorpse(attributes)
                 name = name,
                 icon = "__base__/graphics/icons/medium-worm-corpse.png",
                 icon_size = 64,
-                icon_mipmaps = 4,
                 selection_box = {{-0.8, -0.8}, {0.8, 0.8}},
                 selectable_in_game = false,
                 subgroup="corpses",
@@ -304,7 +280,6 @@ function biterUtils.makeBiter(attributes)
         localised_name = biterUtils.getLocalisedName(attributes),
         icon = "__base__/graphics/icons/small-biter.png",
         icon_size = 64,
-        icon_mipmaps = 4,
         flags = attributes.flags or {"placeable-player", "placeable-enemy", "placeable-off-grid", "not-repairable", "breaths-air"},
         max_health = attributes.health,
         order = "b-b-a",
@@ -331,7 +306,7 @@ function biterUtils.makeBiter(attributes)
         loot = attributes.loot,
         spawning_time_modifier = attributes.spawningTimeModifer or nil,
         distance_per_frame = attributes.distancePerFrame or 0.1,
-        pollution_to_join_attack = attributes.pollutionToAttack or 200,
+        absorptions_to_join_attack = { pollution = attributes.pollutionToAttack or 200 },
         distraction_cooldown = attributes.distractionCooldown or 300,
         corpse = makeBiterCorpse(attributes),
         dying_explosion = attributes.explosion,
@@ -366,7 +341,6 @@ function biterUtils.makeSpitter(attributes)
         localised_name = biterUtils.getLocalisedName(attributes),
         icon = "__base__/graphics/icons/small-spitter.png",
         icon_size = 64,
-        icon_mipmaps = 4,
         flags = attributes.flags or {"placeable-player", "placeable-enemy", "placeable-off-grid", "not-repairable", "breaths-air"},
         max_health = attributes.health,
         order = "b-b-a",
@@ -385,7 +359,7 @@ function biterUtils.makeSpitter(attributes)
         movement_speed = attributes.movement,
         spawning_time_modifier = attributes.spawningTimeModifer or nil,
         distance_per_frame = attributes.distancePerFrame or 0.1,
-        pollution_to_join_attack = attributes.pollutionToAttack or 200,
+        absorptions_to_join_attack = { pollution = attributes.pollutionToAttack or 200 },
         distraction_cooldown = attributes.distractionCooldown or 300,
         alternative_attacking_frame_sequence = spitter_alternative_attacking_animation_sequence(),
         corpse = makeSpitterCorpse(attributes),
@@ -424,7 +398,6 @@ function biterUtils.makeUnitSpawner(attributes)
         localised_description = biterUtils.getLocalisedDescription(attributes),
         icon = "__base__/graphics/icons/biter-spawner.png",
         icon_size = 64,
-        icon_mipmaps = 4,
         flags = {"placeable-player", "placeable-enemy", "not-repairable"},
         max_health = attributes.health,
         order="b-b-g",
@@ -458,8 +431,12 @@ function biterUtils.makeUnitSpawner(attributes)
         collision_box = {{-3.0 * attributes.scale, -2.0 * attributes.scale}, {2.0 * attributes.scale, 2.0 * attributes.scale}},
         selection_box = {{-3.5 * attributes.scale, -2.5 * attributes.scale}, {2.5 * attributes.scale, 2.5 * attributes.scale}},
         -- in ticks per 1 pu
-        pollution_absorption_absolute = attributes.pollutionAbsorptionAbs or 20,
-        pollution_absorption_proportional = attributes.pollutionAbsorptionPro or 0.01,
+        absorptions_per_second = {
+            pollution = {
+                absolute = attributes.pollutionAbsorptionAbs or 20,
+                proportional = attributes.pollutionAbsorptionPro or 0.01
+            }
+        },
         map_generator_bounding_box = {{-4.2 * attributes.scale, -3.2 * attributes.scale}, {3.2 * attributes.scale, 3.2 * attributes.scale}},
         corpse = makeUnitSpawnerCorpse(attributes),
         dying_explosion = attributes.explosion or "blood-explosion-huge",
@@ -469,16 +446,15 @@ function biterUtils.makeUnitSpawner(attributes)
         max_count_of_owned_units = attributes.unitsOwned or 7,
         max_friends_around_to_spawn = attributes.unitsToSpawn or 5,
         enemy_map_color = ((not settings.startup["rampant--oldRedEnemyMapColor"].value) and attributes.tint2) or nil,
-        animations =
+        graphics_set =
             {
-                spawner_idle_animation(0, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
-                spawner_idle_animation(1, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
-                spawner_idle_animation(2, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
-                spawner_idle_animation(3, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint)
-            },
-        integration =
-            {
-                sheet = spawner_integration(attributes.scale)
+                animations =
+                    {
+                        spawner_idle_animation(0, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
+                        spawner_idle_animation(1, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
+                        spawner_idle_animation(2, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint),
+                        spawner_idle_animation(3, attributes.tint, attributes.scale, attributes.tint2 or attributes.tint)
+                    }
             },
         result_units = attributes.unitSet,
         -- With zero evolution the spawn rate is 6 seconds, with max evolution it is 2.5 seconds
@@ -552,7 +528,7 @@ function biterUtils.makeUnitSpawner(attributes)
             }
     }
     if attributes.autoplace then
-        o["autoplace"] = enemy_spawner_autoplace(attributes.autoplace)
+        o["autoplace"] = enemyAutoplace.enemy_spawner_autoplace(attributes.autoplace)
     end
     if attributes.appendFlags then
         for flag in pairs(attributes.appendFlags) do
@@ -573,7 +549,7 @@ function biterUtils.makeWorm(attributes)
         name = attributes.name .. "-rampant",
         localised_name = biterUtils.getLocalisedName(attributes),
         icon = "__base__/graphics/icons/medium-worm.png",
-        icon_size = 64, icon_mipmaps = 4,
+        icon_size = 64,
         flags = attributes.flags or {"placeable-player", "placeable-enemy", "not-repairable", "not-repairable", "breaths-air"},
         order="b-b-e",
         subgroup="enemies",
@@ -590,6 +566,7 @@ function biterUtils.makeWorm(attributes)
         dying_trigger_effect = attributes.dyingEffect,
         inventory_size = attributes.inventorySize,
         dying_sound = attributes.dyingSounds,
+        graphics_set = {},
         folded_speed = 0.01,
         folded_speed_secondary = 0.024,
         folded_animation = wormFoldedAnimation(attributes.scale, attributes.tint, attributes.tint2 or attributes.tint),
@@ -617,7 +594,7 @@ function biterUtils.makeWorm(attributes)
         folding_animation =  wormPreparingAnimation(attributes.scale, attributes.tint, "backward", attributes.tint2 or attributes.tint),
         folding_sound = attributes.foldSounds,
         prepare_range = attributes.prepareRange or 30,
-        integration = worm_integration(attributes.scale),
+        integration = worm_integration(attributes.scale, true),
         attack_parameters = attributes.attack,
         secondary_animation = true,
         enemy_map_color = ((not settings.startup["rampant--oldRedEnemyMapColor"].value) and attributes.tint2) or nil,
@@ -662,7 +639,7 @@ function biterUtils.makeWorm(attributes)
     }
 
     if attributes.autoplace then
-        o["autoplace"] = enemy_worm_autoplace(attributes.autoplace)
+        o["autoplace"] = enemyAutoplace.enemy_worm_autoplace(attributes.autoplace)
     end
     if attributes.appendFlags then
         for flag in pairs(attributes.appendFlags) do
@@ -701,12 +678,12 @@ function biterUtils.createSuicideAttack(attributes, blastWave, animation)
                                 tile_name = "nuclear-ground",
                                 radius = attributes.radius * 0.25,
                                 apply_projection = true,
-                                tile_collision_mask = { "water-tile" },
+                                tile_collision_mask = { layers = { water_tile = true } },
                             },
                             {
                                 type = "destroy-cliffs",
                                 radius = attributes.radius * 0.18,
-                                explosion = "explosion"
+                                explosion_at_trigger = "explosion"
                             },
                             {
                                 type = "create-entity",
@@ -714,7 +691,6 @@ function biterUtils.createSuicideAttack(attributes, blastWave, animation)
                             },
                             {
                                 type = "camera-effect",
-                                effect = "screen-burn",
                                 duration = 60,
                                 ease_in_duration = 5,
                                 ease_out_duration = 60,
@@ -725,21 +701,19 @@ function biterUtils.createSuicideAttack(attributes, blastWave, animation)
                             },
                             {
                                 type = "play-sound",
-                                sound = sounds.nuclear_explosion(0.9),
+                                sound = withAudibleDistance(sounds.nuclear_explosion(0.9), 3),
                                 play_on_target_position = false,
                                 -- min_distance = 200,
-                                max_distance = 1000,
+                                max_distance = 1000
                                 -- volume_modifier = 1,
-                                audible_distance_modifier = 3
                             },
                             {
                                 type = "play-sound",
-                                sound = sounds.nuclear_explosion_aftershock(0.4),
+                                sound = withAudibleDistance(sounds.nuclear_explosion_aftershock(0.4), 3),
                                 play_on_target_position = false,
                                 -- min_distance = 200,
-                                max_distance = 1000,
+                                max_distance = 1000
                                 -- volume_modifier = 1,
-                                audible_distance_modifier = 3
                             },
                             {
                                 type = "damage",
@@ -902,7 +876,7 @@ function biterUtils.createSuicideAttack(attributes, blastWave, animation)
                                                         {
                                                             type = "create-entity",
                                                             entity_name = "nuclear-smouldering-smoke-source",
-                                                            tile_collision_mask = { "water-tile" }
+                                                            tile_collision_mask = { layers = { water_tile = true } }
                                                         }
                                                     }
                                             }

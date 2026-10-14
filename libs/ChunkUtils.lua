@@ -40,8 +40,6 @@ local BUILDING_HIVE_TIER_LOOKUP = Constants.BUILDING_HIVE_TIER_LOOKUP
 local VANILLA_ENTITY_TYPE_LOOKUP = Constants.VANILLA_ENTITY_TYPE_LOOKUP
 local BUILDING_HIVE_TYPE_LOOKUP = Constants.BUILDING_HIVE_TYPE_LOOKUP
 
-local DEFINES_WIRE_TYPE_RED = defines.wire_type.red
-local DEFINES_WIRE_TYPE_GREEN = defines.wire_type.green
 
 local BASE_AI_STATE_ONSLAUGHT = Constants.BASE_AI_STATE_ONSLAUGHT
 
@@ -86,6 +84,8 @@ local addBaseResourceChunk = ChunkPropertyUtils.addBaseResourceChunk
 local setAreaInQueryChunkSize = Utils.setAreaInQueryChunkSize
 local setAreaXInQuery = Utils.setAreaXInQuery
 local setAreaYInQuery = Utils.setAreaYInQuery
+local getWireConnections = Utils.getWireConnections
+local restoreWireConnections = Utils.restoreWireConnections
 
 local setPlayerBaseGenerator = ChunkPropertyUtils.setPlayerBaseGenerator
 local addPlayerBaseGenerator = ChunkPropertyUtils.addPlayerBaseGenerator
@@ -658,7 +658,7 @@ function ChunkUtils.makeImmortalEntity(surface, entity)
 
     local wires
     if (entity.type == "electric-pole") then
-        wires = entity.neighbours
+        wires = getWireConnections(entity)
     end
     entity.destroy()
     local newEntity = surface.create_entity({position=repairPosition,
@@ -666,21 +666,7 @@ function ChunkUtils.makeImmortalEntity(surface, entity)
                                              direction=repairDirection,
                                              force=repairForce})
     if wires then
-        for _,v in pairs(wires.copper) do
-            if (v.valid) then
-                newEntity.connect_neighbour(v);
-            end
-        end
-        for _,v in pairs(wires.red) do
-            if (v.valid) then
-                newEntity.connect_neighbour({wire = DEFINES_WIRE_TYPE_RED, target_entity = v});
-            end
-        end
-        for _,v in pairs(wires.green) do
-            if (v.valid) then
-                newEntity.connect_neighbour({wire = DEFINES_WIRE_TYPE_GREEN, target_entity = v});
-            end
-        end
+        restoreWireConnections(newEntity, wires)
     end
 
     newEntity.destructible = false

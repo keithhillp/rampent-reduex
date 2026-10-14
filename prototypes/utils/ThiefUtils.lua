@@ -28,7 +28,7 @@ function thiefUtils.makeDrainCrystal(attributes)
                 name = itemName,
                 icon = "__Rampant__/graphics/icons/thief/crystal-drain.png",
                 icon_size = 32,
-                flags = {"hidden"},
+                hidden = true,
                 subgroup = "energy",
                 order = "e[accumulator]-a[accumulator]",
                 place_result = name,
@@ -88,7 +88,7 @@ function thiefUtils.makeDrainCrystal(attributes)
                         line_length = 8,
                         shift = {0.65, 0}
                     },
-                vehicle_impact_sound =  { filename = "__base__/sound/car-metal-impact.ogg", volume = 0.65 },
+                impact_category = "metal",
                 working_sound =
                     {
                         sound = {

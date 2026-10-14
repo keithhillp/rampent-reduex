@@ -48,6 +48,10 @@ local CHUNK_ALL_DIRECTIONS = Constants.CHUNK_ALL_DIRECTIONS
 
 local MAGIC_MAXIMUM_NUMBER = Constants.MAGIC_MAXIMUM_NUMBER
 
+local DEFENSE_THREAT_MAX = Constants.DEFENSE_THREAT_MAX
+local DEFENSE_THREAT_HALF_LIFE = Constants.DEFENSE_THREAT_HALF_LIFE
+local DEFENSE_THREAT_EXPIRE = Constants.DEFENSE_THREAT_EXPIRE
+
 -- imported functions
 
 local activateMap
@@ -476,6 +480,41 @@ end
 
 function ChunkPropertyUtils.getPlayerGenerator(chunk)
     return chunk.playerGenerator or 0
+end
+
+--[[
+    Defense memory decays lazily on read so idle chunks cost nothing to maintain.
+--]]
+function ChunkPropertyUtils.getDefenseThreat(chunk, tick)
+    local threat = chunk.defenseThreat
+    if not threat then
+        return 0
+    end
+    local elapsed = tick - chunk.defenseThreatTick
+    if (elapsed >= DEFENSE_THREAT_EXPIRE) then
+        chunk.defenseThreat = nil
+        chunk.defenseThreatTick = nil
+        return 0
+    end
+    return threat * (0.5 ^ (elapsed / DEFENSE_THREAT_HALF_LIFE))
+end
+
+local function setDefenseThreat(chunk, threat, tick)
+    if (threat < 0.01) then
+        chunk.defenseThreat = nil
+        chunk.defenseThreatTick = nil
+    else
+        chunk.defenseThreat = mMin(threat, DEFENSE_THREAT_MAX)
+        chunk.defenseThreatTick = tick
+    end
+end
+
+function ChunkPropertyUtils.addDefenseThreat(chunk, amount, tick)
+    setDefenseThreat(chunk, ChunkPropertyUtils.getDefenseThreat(chunk, tick) + amount, tick)
+end
+
+function ChunkPropertyUtils.scaleDefenseThreat(chunk, factor, tick)
+    setDefenseThreat(chunk, ChunkPropertyUtils.getDefenseThreat(chunk, tick) * factor, tick)
 end
 
 function ChunkPropertyUtils.getPlayerBaseGenerator(chunk)

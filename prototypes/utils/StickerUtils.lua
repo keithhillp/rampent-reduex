@@ -33,16 +33,15 @@ function stickerUtils.makeSticker(attributes)
 
         animation = attributes.stickerAnimation or
             {
-                filename = "__base__/graphics/entity/fire-flame/fire-flame-13.png",
-                line_length = 8,
-                width = 60,
-                height = 118,
-                frame_count = 25,
-                axially_symmetrical = false,
+                filename = "__base__/graphics/entity/fire-flame/fire-flame-01.png",
+                line_length = 10,
+                width = 84,
+                height = 130,
+                frame_count = 90,
                 direction_count = 1,
                 blend_mode = "normal",
                 animation_speed = 2,
-                scale = 0.175,
+                scale = 0.35,
                 tint = attributes.tint2 or { r = 1, g = 1, b = 1, a = 0.35 },
                 shift = math3d.vector2.mul({-0.078125, -1.8125}, 0.1),
             },

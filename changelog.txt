@@ -1,4 +1,79 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.8.2
+  Bugfixes:
+    - Attack scores now count damage and kills from spitter acid splash fires and other indirect enemy damage, which carry no squad unit as their cause and were missed, by crediting the attack hitting that spot
+
+---------------------------------------------------------------------------------------------------
+Version: 3.8.1
+  Changes:
+    - Fire support spitters stay with their squad until it is within 32 tiles of the target instead of breaking off at the start of the attack, which had them march most of the way in single file behind the biters
+    - Fire support spitters fan out into a firing line, each taking its own spot on an arc just inside its range facing the squad's approach, with extra rows behind when the line is full
+    - Firing spots near burning ground are shifted along the line or skipped, so spitters no longer walk into existing flames
+
+---------------------------------------------------------------------------------------------------
+Version: 3.8.0
+  Features:
+    - Spitter fire support: at the attack point spitters break off from their squad and shoot the priority target or nearest turret over the walls instead of chewing on walls with the rest of the group
+    - Sector memory: after repeated failed attacks on the part of the base its nests lead to, a base detours sideways, alternating sides at growing distances, keeps using a detour that works, and retries the usual sector once every detour has failed or after 20 minutes
+    - Feints during a detour send the decoy at the usual sector while the main force detours
+    - New support gene sets how often spitters break off for fire support
+  Changes:
+    - Damage, kills and losses of spitters giving fire support count toward their attack's score
+  Bugfixes:
+    - Fixed crash "attempt to compare number with nil" in applyToSquad when an attack started before an update used a doctrine without the newest genes
+
+---------------------------------------------------------------------------------------------------
+Version: 3.7.1
+  Bugfixes:
+    - Fixed staged waves recruiting far more squads than planned, a wave now stops recruiting once it has all its squads
+    - Fixed squads being formed one past the squad cap and then disbanded when they finished gathering, which made bases recruit and pay for the same units over and over
+  Changes:
+    - Squads waiting for the rest of their wave fall back 2 chunks away from the defenses before holding, and waves launch after at most 1 minute of staging
+    - Area attacks and priority strikes engage turrets and other military targets first instead of the nearest building, so spitters shoot turrets over walls like vanilla attacks
+
+---------------------------------------------------------------------------------------------------
+Version: 3.7.0
+  Features:
+    - Pincer attacks: waves can split their squads out to both flanks around a center squad
+    - Feints: waves can open with a decoy squad swinging wide to one side while the main force holds back
+    - Target priorities: squads weigh striking power, ammo supply, labs, rails and roboports, or players against a plain brawl
+    - Timing: attacks can wait for darkness, or for the scouted defense to brown out or be left without a player nearby
+    - Resolve: doctrines set how much punishment a squad takes before retreating
+    - Biter and spitter mix: doctrines set the share of spitters recruited into each squad
+    - New doctrine seeds: Pincer, Feint, Raider and Stalker, new surfaces start with 10 doctrines covering every gene's extremes
+  Changes:
+    - The supply strike chance gene is replaced by power and ammo priorities, existing doctrines keep their old values
+    - Tactics: Strike supply lines setting is now Tactics: Priority target strikes
+    - Added Tactics: Write telemetry file setting, which appends every tactical decision as JSON lines to script-output/rampant/telemetry.jsonl
+  Bugfixes:
+    - Fixed crash "LuaCommandable API call when LuaCommandable was invalid" when a squad's group was gone right after it was given a priority strike
+
+---------------------------------------------------------------------------------------------------
+Version: 3.6.0
+  Features:
+    - Scouts survey the defenses where they die or reach their target and give their base a defense profile such as laser+wall, gun or open
+    - Doctrines keep a separate fitness against each defense profile and bases pick the doctrine that has worked best against what their scouts found
+    - The best doctrine against each defense profile is protected from being replaced
+  Changes:
+    - Scouting is now a base routine whenever its defense profile is older than 10 minutes, and no longer a doctrine gene
+    - Doctrines are replaced every 5 scored attacks instead of 4
+
+---------------------------------------------------------------------------------------------------
+Version: 3.5.0
+  Features:
+    - Attack shapes evolve per surface: doctrines controlling wave size, squad size, staggering, scouting, flanking, supply strikes, marching and kamikaze are scored on results and bred from the most successful
+    - Added /rampantDoctrines command to list each surface's doctrines and fitness
+
+---------------------------------------------------------------------------------------------------
+Version: 3.4.0
+  Features:
+    - Bases send a small scout group to probe defenses before committing a full attack
+    - Kills by player turrets, including Space Age tesla turrets, are remembered per chunk and fade over time, attacks steer toward the least defended part of the perimeter
+    - Attacking squads strike the electric poles powering laser turrets and the inserters loading gun turrets
+    - Bases that can afford several squads stage them and launch the whole wave together
+    - Added mod settings to toggle each tactic and to print tactics to chat
+
+---------------------------------------------------------------------------------------------------
 Version: 3.3.4
   Contributions:
     - TomaszJH - Polish translations

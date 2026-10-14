@@ -23,11 +23,10 @@ local unitUtils = {}
 
 local constants = require("Constants")
 local chunkPropertyUtils = require("ChunkPropertyUtils")
+local utils = require("Utils")
 
 -- constants
 
-local DEFINES_WIRE_TYPE_RED = defines.wire_type.red
-local DEFINES_WIRE_TYPE_GREEN = defines.wire_type.green
 
 local ENERGY_THIEF_CONVERSION_TABLE = constants.ENERGY_THIEF_CONVERSION_TABLE
 local ENERGY_THIEF_LOOKUP = constants.ENERGY_THIEF_LOOKUP
@@ -37,6 +36,8 @@ local ENERGY_THIEF_DRAIN_CRYSTALS = constants.ENERGY_THIEF_DRAIN_CRYSTALS
 -- imported functions
 
 local setDrainPylons = chunkPropertyUtils.setDrainPylons
+local getWireConnections = utils.getWireConnections
+local restoreWireConnections = utils.restoreWireConnections
 
 -- module code
 
@@ -84,7 +85,7 @@ function unitUtils.createDrainPylon(map, cause, entity, entityType)
         if conversion then
             local newEntity = map.surface.create_entity({
                     position=entity.position,
-                    name=convertTypeToDrainCrystal(entity.force.evolution_factor, conversion),
+                    name=convertTypeToDrainCrystal(entity.force.get_evolution_factor(entity.surface), conversion),
                     direction=entity.direction
             })
             if (conversion == "pole") then
@@ -94,30 +95,7 @@ function unitUtils.createDrainPylon(map, cause, entity, entityType)
                         direction=entity.direction
                 })
                 targetEntity.backer_name = ""
-                local wires = entity.neighbours
-                if wires then
-                    for _,v in pairs(wires.copper) do
-                        if (v.valid) then
-                            newEntity.connect_neighbour(v);
-                        end
-                    end
-                    for _,v in pairs(wires.red) do
-                        if (v.valid) then
-                            newEntity.connect_neighbour({
-                                    wire = DEFINES_WIRE_TYPE_RED,
-                                    target_entity = v
-                            });
-                        end
-                    end
-                    for _,v in pairs(wires.green) do
-                        if (v.valid) then
-                            newEntity.connect_neighbour({
-                                    wire = DEFINES_WIRE_TYPE_GREEN,
-                                    target_entity = v
-                            });
-                        end
-                    end
-                end
+                restoreWireConnections(newEntity, getWireConnections(entity))
                 setDrainPylons(map, targetEntity, newEntity)
             elseif newEntity.backer_name then
                 newEntity.backer_name = ""

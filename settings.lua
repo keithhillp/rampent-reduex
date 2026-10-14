@@ -219,6 +219,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--max-evo-dist",
+            hidden = true,
             setting_type = "startup",
             default_value = 300,
             minimum_value = 0,
@@ -230,6 +231,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--adaptationModifier",
+            hidden = true,
             setting_type = "runtime-global",
             default_value = 1,
             minimum_value = 0.001,
@@ -241,6 +243,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--max-base-mutations",
+            hidden = true,
             setting_type = "runtime-global",
             minimum_value = 0,
             maximum_value = 9999999999,
@@ -252,6 +255,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--maxBaseAlignmentHistory",
+            hidden = true,
             setting_type = "runtime-global",
             minimum_value = 0,
             maximum_value = 16,
@@ -285,7 +289,10 @@ data:extend({
             name = "rampant--newEnemies",
             description = "rampant--newEnemies",
             setting_type = "startup",
-            default_value = true,
+            -- the new enemy factions are disabled and the option is hidden
+            hidden = true,
+            forced_value = false,
+            default_value = false,
             order = "e[modifier]-a[unit]",
             per_user = false
         },
@@ -305,6 +312,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--newEnemyVariations",
+            hidden = true,
             description = "rampant--newEnemyVariations",
             setting_type = "startup",
             minimum_value = 1,
@@ -317,6 +325,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--tierStart",
+            hidden = true,
             setting_type = "startup",
             default_value = 1,
             minimum_value = 1,
@@ -328,6 +337,7 @@ data:extend({
         {
             type = "int-setting",
             name = "rampant--tierEnd",
+            hidden = true,
             setting_type = "startup",
             minimum_value = 1,
             maximum_value = 10,
@@ -339,6 +349,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--acidEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-n[unit]",
@@ -348,6 +359,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--physicalEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-o[unit]",
@@ -357,6 +369,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--suicideEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-p[unit]",
@@ -366,6 +379,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--fireEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-q[unit]",
@@ -375,6 +389,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--electricEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-r[unit]",
@@ -384,6 +399,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--nuclearEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-s[unit]",
@@ -393,6 +409,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--infernoEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-t[unit]",
@@ -402,6 +419,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--fastEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-u[unit]",
@@ -411,6 +429,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--trollEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-v[unit]",
@@ -420,6 +439,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--spawnerEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-w[unit]",
@@ -429,6 +449,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--waspEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-x[unit]",
@@ -438,6 +459,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--laserEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-y[unit]",
@@ -447,6 +469,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--energyThiefEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-z[unit]",
@@ -456,6 +479,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--poisonEnemy",
+            hidden = true,
             setting_type = "startup",
             default_value = true,
             order = "l[modifier]-za[unit]",
@@ -538,7 +562,62 @@ data:extend({
 
         {
             type = "bool-setting",
+            name = "rampant--enableScouting",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]a",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--enableSupplyTargeting",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]b",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--enableCoordinatedWaves",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]c",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--enableEvolvingDoctrine",
+            setting_type = "runtime-global",
+            default_value = true,
+            order = "m[total]-d[tactics]c2",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--writeTelemetry",
+            setting_type = "runtime-global",
+            default_value = false,
+            order = "m[total]-d[tactics]e",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
+            name = "rampant--printTactics",
+            setting_type = "runtime-global",
+            default_value = false,
+            order = "m[total]-d[tactics]d",
+            per_user = false
+        },
+
+        {
+            type = "bool-setting",
             name = "rampant--printBaseAdaptation",
+            hidden = true,
             setting_type = "runtime-global",
             default_value = false,
             order = "m[total]-c[ai]z",
@@ -548,6 +627,7 @@ data:extend({
         {
             type = "bool-setting",
             name = "rampant--printBaseUpgrades",
+            hidden = true,
             setting_type = "runtime-global",
             default_value = false,
             order = "m[total]-c[ai]z",
@@ -619,6 +699,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--minimumAdaptationEvolution",
+            hidden = true,
             description = "rampant--minimumAdaptationEvolution",
             setting_type = "runtime-global",
             default_value = 0.2,
@@ -683,6 +764,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--scaleParticleCount",
+            hidden = true,
             description = "rampant--scaleParticleCount",
             setting_type = "startup",
             default_value = 1,
@@ -723,6 +805,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitBiterHealthScaler",
+            hidden = true,
             description = "rampant--unitBiterHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -735,6 +818,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitBiterHealingScaler",
+            hidden = true,
             description = "rampant--unitBiterHealingScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -747,6 +831,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitBiterSpeedScaler",
+            hidden = true,
             description = "rampant--unitBiterSpeedScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -759,6 +844,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitBiterDamageScaler",
+            hidden = true,
             description = "rampant--unitBiterDamageScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -771,6 +857,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitBiterRangeScaler",
+            hidden = true,
             description = "rampant--unitBiterRangeScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -783,6 +870,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpitterHealthScaler",
+            hidden = true,
             description = "rampant--unitSpitterHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -795,6 +883,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpitterHealingScaler",
+            hidden = true,
             description = "rampant--unitSpitterHealingScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -807,6 +896,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpitterSpeedScaler",
+            hidden = true,
             description = "rampant--unitSpitterSpeedScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -819,6 +909,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpitterDamageScaler",
+            hidden = true,
             description = "rampant--unitSpitterDamageScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -831,6 +922,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpitterRangeScaler",
+            hidden = true,
             description = "rampant--unitSpitterRangeScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -843,6 +935,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitDroneHealthScaler",
+            hidden = true,
             description = "rampant--unitDroneHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -855,6 +948,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitDroneHealingScaler",
+            hidden = true,
             description = "rampant--unitDroneHealingScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -867,6 +961,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitDroneSpeedScaler",
+            hidden = true,
             description = "rampant--unitDroneSpeedScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -879,6 +974,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitDroneDamageScaler",
+            hidden = true,
             description = "rampant--unitDroneDamageScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -891,6 +987,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitDroneRangeScaler",
+            hidden = true,
             description = "rampant--unitDroneRangeScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -903,6 +1000,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitWormHealthScaler",
+            hidden = true,
             description = "rampant--unitWormHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -915,6 +1013,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitWormHealingScaler",
+            hidden = true,
             description = "rampant--unitWormHealingScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -927,6 +1026,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitWormDamageScaler",
+            hidden = true,
             description = "rampant--unitWormDamageScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -939,6 +1039,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitWormRangeScaler",
+            hidden = true,
             description = "rampant--unitWormRangeScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -951,6 +1052,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpawnerHealthScaler",
+            hidden = true,
             description = "rampant--unitSpawnerHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -963,6 +1065,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpawnerHealingScaler",
+            hidden = true,
             description = "rampant--unitSpawnerHealingScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -975,6 +1078,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpawnerOwnedScaler",
+            hidden = true,
             description = "rampant--unitSpawnerOwnedScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -987,6 +1091,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpawnerSpawnScaler",
+            hidden = true,
             description = "rampant--unitSpawnerSpawnScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -999,6 +1104,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitSpawnerRespawnScaler",
+            hidden = true,
             description = "rampant--unitSpawnerRespawnScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -1011,6 +1117,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitHiveRespawnScaler",
+            hidden = true,
             description = "rampant--unitHiveRespawnScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -1023,6 +1130,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitHiveHealthScaler",
+            hidden = true,
             description = "rampant--unitHiveHealthScaler",
             setting_type = "startup",
             default_value = 1.0,
@@ -1035,6 +1143,7 @@ data:extend({
         {
             type = "double-setting",
             name = "rampant--unitHiveHealingScaler",
+            hidden = true,
             description = "rampant--unitHiveHealingScaler",
             setting_type = "startup",
             default_value = 1.0,

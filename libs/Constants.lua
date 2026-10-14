@@ -229,6 +229,148 @@ constants.MAX_PENALTY_BEFORE_PURGE = 36000
 constants.COMMAND_TIMEOUT = 1 * constants.TICKS_A_MINUTE
 constants.BUILD_COMMAND_TIMEOUT = 7 * constants.TICKS_A_MINUTE
 
+-- Tactics
+
+-- scouting: a small probe is sent before a base commits a full attack
+constants.AI_SCOUT_COST = 40
+constants.SCOUT_SQUAD_SIZE = 3
+constants.SCOUT_MAX_DURATION = 3 * constants.TICKS_A_MINUTE
+-- scouts survey defenses where they die or reach their target, the result is
+-- the base's defense profile until it goes stale and the base scouts again
+constants.SCOUT_SURVEY_RADIUS = 30
+constants.SCOUT_WALL_THRESHOLD = 8
+constants.DEFENSE_PROFILE_TTL = 10 * constants.TICKS_A_MINUTE
+
+-- defense memory: kills by player turrets mark chunks as defended
+constants.DEFENSE_TURRET_TYPES = {
+    ["ammo-turret"] = true,
+    ["electric-turret"] = true,
+    ["fluid-turret"] = true
+}
+-- tesla turrets kill through bouncing beams whose cause may not be the turret,
+-- so electric deaths without a turret cause are credited to a nearby electric turret
+constants.DEFENSE_ELECTRIC_FALLBACK_RADIUS = 30
+constants.DEFENSE_THREAT_PER_KILL = 1
+constants.DEFENSE_THREAT_SCOUT_MULTIPLIER = 4
+constants.DEFENSE_THREAT_MAX = 40
+constants.DEFENSE_THREAT_WEIGHT = 0.25
+constants.DEFENSE_THREAT_HALF_LIFE = 10 * constants.TICKS_A_MINUTE
+constants.DEFENSE_THREAT_EXPIRE = constants.DEFENSE_THREAT_HALF_LIFE * 6
+constants.DEFENSE_THREAT_TURRET_DESTROYED_FACTOR = 0.5
+
+-- priority strikes: at the attack point squads weigh striking a priority target
+-- against a plain brawl, the weights come from the attack doctrine
+constants.SUPPLY_SEARCH_RADIUS = 40
+constants.SUPPLY_TURRET_TYPES = {
+    "ammo-turret",
+    "electric-turret"
+}
+constants.PRIORITY_BRAWL_WEIGHT = 0.5
+constants.PRIORITY_HUNT_RADIUS = 64
+constants.PRIORITY_LOGISTICS_TYPES = {
+    "roboport",
+    "train-stop",
+    "straight-rail",
+    "curved-rail-a",
+    "curved-rail-b",
+    "half-diagonal-rail"
+}
+-- squads without a doctrine keep the original supply strike behaviour
+constants.PRIORITY_DEFAULTS = {
+    power = 1,
+    ammo = 1,
+    science = 0,
+    logistics = 0,
+    hunt = 0
+}
+
+-- pincers and feints: flank squads detour sideways off the attack axis first
+constants.FLANK_OFFSET = 64
+constants.FLANK_ADVANCE = 32
+constants.FEINT_OFFSET = 96
+constants.FEINT_DELAY = 45 * constants.TICKS_A_SECOND
+
+-- sector memory: after repeated failures on its usual sector a base detours sideways,
+-- alternating sides at growing distances
+constants.SECTOR_FAIL_FITNESS = 0.5
+constants.SECTOR_FAILS_TO_DETOUR = 2
+constants.SECTOR_MEMORY = 20 * constants.TICKS_A_MINUTE
+constants.SECTOR_DETOURS = {
+    {side = 1, distance = 192},
+    {side = -1, distance = 192},
+    {side = 1, distance = 384},
+    {side = -1, distance = 384},
+    {side = 1, distance = 576},
+    {side = -1, distance = 576}
+}
+
+-- fire support: spitters break off at the attack point to shoot targets over walls
+constants.SUPPORT_TURRET_TYPES = {
+    "ammo-turret",
+    "electric-turret",
+    "fluid-turret"
+}
+constants.DETACHED_UNIT_TIMEOUT = 5 * constants.TICKS_A_MINUTE
+-- spitters stay with their group until it is this close to the target, then fan out
+constants.SUPPORT_DETACH_DISTANCE = 32
+constants.SUPPORT_PENDING_TIMEOUT = 3 * constants.TICKS_A_MINUTE
+-- firing line: spots just inside each spitter's range, spaced along an arc
+-- of up to SUPPORT_FAN_ANGLE radians either side of the approach, extra rows behind
+constants.SUPPORT_DEFAULT_RANGE = 13
+constants.SUPPORT_RANGE_MARGIN = 1.5
+constants.SUPPORT_SPACING = 2.5
+constants.SUPPORT_ROW_GAP = 2.5
+constants.SUPPORT_FAN_ANGLE = 1.2
+constants.SUPPORT_FIRE_CLEARANCE = 4
+constants.SUPPORT_SLOT_TRIES = 3
+
+-- timing: attacks wait for darkness or a weakened defense up to a limit
+constants.DOCTRINE_MAX_WAIT = 5 * constants.TICKS_A_MINUTE
+constants.NIGHT_DARKNESS = 0.65
+constants.PLAYER_ABSENT_RADIUS = 96
+constants.BROWNOUT_FRACTION = 0.5
+
+-- coordinated waves: squads from one base stage until the wave is formed,
+-- the number of squads per wave comes from the attack doctrine
+constants.WAVE_STAGING_TIMEOUT = 1 * constants.TICKS_A_MINUTE
+-- staged squads fall back this far from the attack axis so they gather out of turret range
+constants.WAVE_STAGING_PULLBACK = 64
+constants.WAVE_HOLD_TICKS = 3 * constants.TICKS_A_SECOND
+constants.WAVE_HOLD_RADIUS = 6
+
+-- evolving doctrines: per-surface populations of attack shapes scored by results
+constants.DOCTRINE_POPULATION_SIZE = 10
+constants.DOCTRINE_EXPLORE_CHANCE = 0.15
+constants.DOCTRINE_TOURNAMENT_SIZE = 3
+constants.DOCTRINE_EVOLVE_EVERY = 5
+constants.DOCTRINE_MIN_TRIALS_TO_REPLACE = 2
+constants.DOCTRINE_FITNESS_MIN_ALPHA = 0.4
+constants.DOCTRINE_MUTATION_CHANCE = 0.3
+constants.DOCTRINE_MUTATION_SPREAD = 0.15
+-- every Nth replacement is a random doctrine so the population never fully converges
+constants.DOCTRINE_WILDCARD_EVERY = 5
+constants.DOCTRINE_ATTACK_TIMEOUT = 20 * constants.TICKS_A_MINUTE
+constants.DOCTRINE_TURRET_KILL_BONUS = 500
+constants.DOCTRINE_CHARACTER_KILL_VALUE = 2000
+constants.DOCTRINE_DEFAULT_KILL_VALUE = 10
+constants.DOCTRINE_DAMAGE_VALUE = 0.5
+constants.DOCTRINE_LOSS_PENALTY = 0.5
+-- enemy damage and kills with no squad unit as cause go to the closest attack impact within this radius
+constants.DOCTRINE_CREDIT_RADIUS = 64
+-- fitness per defense profile falls back to overall fitness until tried this many times
+constants.DOCTRINE_CONTEXT_PRIOR = 2
+-- the best doctrine against a profile is protected once it has this many tries there
+constants.DOCTRINE_CONTEXT_CHAMPION_TRIALS = 2
+constants.DOCTRINE_CONTEXT_UNKNOWN = "unknown"
+-- player structures whose damage counts toward an attack's score
+constants.DOCTRINE_DAMAGE_FILTER = {
+    {filter = "type", type = "ammo-turret"},
+    {filter = "type", type = "electric-turret"},
+    {filter = "type", type = "fluid-turret"},
+    {filter = "type", type = "wall"},
+    {filter = "type", type = "gate"}
+}
+
 -- player building pheromones
 
 constants.GENERATOR_PHEROMONE_LEVEL_1 = 25

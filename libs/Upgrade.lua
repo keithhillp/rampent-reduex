@@ -134,7 +134,7 @@ local function addCommandSet()
     Universe.spbFilteredEntitiesPlayerQueryLowest = {
         area=spbSharedChunkArea,
         force=Universe.playerForces,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "wall",
             "transport-belt"
@@ -143,7 +143,7 @@ local function addCommandSet()
     Universe.spbFilteredEntitiesPlayerQueryLow = {
         area=spbSharedChunkArea,
         force=Universe.playerForces,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "splitter",
             "pump",
@@ -160,7 +160,7 @@ local function addCommandSet()
     Universe.spbFilteredEntitiesPlayerQueryHigh = {
         area=spbSharedChunkArea,
         force=Universe.playerForces,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "furnace",
             "lab",
@@ -177,7 +177,7 @@ local function addCommandSet()
     Universe.spbFilteredEntitiesPlayerQueryHighest = {
         area=spbSharedChunkArea,
         force=Universe.playerForces,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "artillery-turret",
             "reactor",
@@ -191,12 +191,12 @@ local function addCommandSet()
         {0,0}
     }
     Universe.isFilteredTilesQuery = {
-        collision_mask="player-layer",
+        collision_mask="player",
         area=isSharedChunkArea
     }
     Universe.isFilteredEntitiesChunkNeutral = {
         area=isSharedChunkArea,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "tree",
             "simple-entity"
@@ -226,12 +226,12 @@ local function addCommandSet()
         {0,0}
     }
     Universe.cpsFilteredTilesQuery = {
-        collision_mask="player-layer",
+        collision_mask="player",
         area=cpsSharedChunkArea
     }
     Universe.cpsFilteredEntitiesChunkNeutral = {
         area=cpsSharedChunkArea,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "tree",
             "simple-entity"
@@ -253,12 +253,12 @@ local function addCommandSet()
         {0,0}
     }
     Universe.msrcFilteredTilesQuery = {
-        collision_mask="player-layer",
+        collision_mask="player",
         area=msrcSharedChunkArea
     }
     Universe.msrcFilteredEntitiesChunkNeutral = {
         area=msrcSharedChunkArea,
-        collision_mask = "player-layer",
+        collision_mask = "player",
         type={
             "tree",
             "simple-entity"
@@ -281,7 +281,7 @@ local function addCommandSet()
     }
     Universe.spFilteredTilesPathQuery = {
         area=spSharedAreaChunk,
-        collision_mask="player-layer",
+        collision_mask="player",
         limit = 1
     }
 
@@ -430,10 +430,10 @@ function Upgrade.setCommandForces(npcForces, enemyForces)
 end
 
 function Upgrade.addUniverseProperties()
-    if not global.universePropertyVersion or global.version then
-        for key in pairs(global) do
+    if not storage.universePropertyVersion or storage.version then
+        for key in pairs(storage) do
             if key ~= "universe" then
-                global[key] = nil
+                storage[key] = nil
             end
         end
 
@@ -441,11 +441,11 @@ function Upgrade.addUniverseProperties()
             Universe[key] = nil
         end
 
-        global.universePropertyVersion = 0
+        storage.universePropertyVersion = 0
     end
 
-    if global.universePropertyVersion < 1 then
-        global.universePropertyVersion = 1
+    if storage.universePropertyVersion < 1 then
+        storage.universePropertyVersion = 1
 
         Universe.safeEntities = {}
         Universe.flushPendingChunks = false
@@ -529,21 +529,32 @@ function Upgrade.addUniverseProperties()
         Universe.pendingUpgradesLength = 0
         Universe.settlePurpleCloud = {}
     end
-    if global.universePropertyVersion < 2 then
-        global.universePropertyVersion = 2
+    if storage.universePropertyVersion < 2 then
+        storage.universePropertyVersion = 2
         Universe.hiveDataIterator = nil
     end
-    if global.universePropertyVersion < 4 then
-        global.universePropertyVersion = 4
+    if storage.universePropertyVersion < 4 then
+        storage.universePropertyVersion = 4
         addCommandSet()
+    end
+    if storage.universePropertyVersion < 5 then
+        storage.universePropertyVersion = 5
+        Universe.activeAttacks = {}
+        Universe.attackId = 0
+        Universe.attackIterator = nil
+    end
+    if storage.universePropertyVersion < 6 then
+        storage.universePropertyVersion = 6
+        Universe.detachedUnits = {}
+        Universe.detachedIterator = nil
     end
 end
 
 function Upgrade.attempt()
-    if not global.gameVersion then
-        global.gameVersion = 1
+    if not storage.gameVersion then
+        storage.gameVersion = 1
 
-        Universe.evolutionLevel = game.forces.enemy.evolution_factor
+        Universe.evolutionLevel = game.forces.enemy.get_evolution_factor()
 
         Universe.random = game.create_random_generator(Constants.ENEMY_SEED)
 
@@ -564,8 +575,8 @@ function Upgrade.attempt()
 
         Universe.modAddedTick = game.tick
     end
-    if global.gameVersion < 2 then
-        global.gameVersion = 2
+    if storage.gameVersion < 2 then
+        storage.gameVersion = 2
         game.map_settings.max_failed_behavior_count = 999
         for _, squad in pairs(Universe.groupNumberToSquad) do
             squad.canBeCompressed = 0
@@ -585,8 +596,8 @@ function Upgrade.attempt()
             end
         end
     end
-    if global.gameVersion < 3 then
-        global.gameVersion = 3
+    if storage.gameVersion < 3 then
+        storage.gameVersion = 3
 
         local lookup = {}
         for _, map in pairs(Universe.maps) do
@@ -629,8 +640,8 @@ function Upgrade.attempt()
 	Universe.hiveIterator = nil
 	Universe.hiveDataIterator = nil
     end
-    if global.gameVersion < 4 then
-        global.gameVersion = 4
+    if storage.gameVersion < 4 then
+        storage.gameVersion = 4
 
         local tick = game.tick
 
@@ -640,6 +651,31 @@ function Upgrade.attempt()
                 MapUtils.queueChunks(surface, surface.get_chunks(), true, tick)
             end
         end
+    end
+    if storage.gameVersion < 5 then
+        storage.gameVersion = 5
+
+        -- Factorio 2.0 replaced LuaUnitGroup.group_number with LuaCommandable.unique_id,
+        -- so squads from 1.1 saves are re-keyed. Squads whose group did not survive keep
+        -- a legacy key so cleanSquads still releases their squad/builder counts.
+        local groupNumberToSquad = {}
+        for groupNumber, squad in pairs(Universe.groupNumberToSquad) do
+            local chunkSquads = (squad.chunk ~= -1) and squad.chunk.squads
+            if chunkSquads then
+                chunkSquads[squad.groupNumber] = nil
+            end
+            if squad.group.valid then
+                squad.groupNumber = squad.group.unique_id
+            else
+                squad.groupNumber = "legacy-" .. groupNumber
+            end
+            if chunkSquads then
+                chunkSquads[squad.groupNumber] = squad
+            end
+            groupNumberToSquad[squad.groupNumber] = squad
+        end
+        Universe.groupNumberToSquad = groupNumberToSquad
+        Universe.squadIterator = nil
     end
 end
 

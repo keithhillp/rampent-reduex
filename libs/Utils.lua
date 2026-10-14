@@ -142,5 +142,36 @@ function Utils.getTimeStringFromTick(tick)
     return days .. "d " .. hours .. "h " .. minutes .. "m " .. seconds .. "s"
 end
 
+--[[
+    Factorio 2.0 replaced LuaEntity.neighbours/connect_neighbour with wire connectors.
+    Snapshot the connections before the source entity is destroyed, then reconnect
+    them on the replacement entity.
+--]]
+function Utils.getWireConnections(entity)
+    local wires = {}
+    for connectorId, connector in pairs(entity.get_wire_connectors(false)) do
+        for _, connection in pairs(connector.connections) do
+            wires[#wires+1] = {
+                connectorId = connectorId,
+                target = connection.target,
+                origin = connection.origin
+            }
+        end
+    end
+    return wires
+end
+
+function Utils.restoreWireConnections(entity, wires)
+    for i=1,#wires do
+        local wire = wires[i]
+        if wire.target.valid then
+            local connector = entity.get_wire_connector(wire.connectorId, true)
+            if connector then
+                connector.connect_to(wire.target, false, wire.origin)
+            end
+        end
+    end
+end
+
 UtilsG = Utils
 return Utils

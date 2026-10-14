@@ -1318,26 +1318,14 @@ local function buildAttack(faction, template)
             template.force = "not-same"
             template.stickerAnimation = {
                 filename = "__base__/graphics/entity/slowdown-sticker/slowdown-sticker.png",
-                priority = "extra-high",
                 line_length = 5,
-                width = 22,
-                height = 24,
+                width = 42,
+                height = 48,
                 frame_count = 50,
                 animation_speed = 0.5,
-                tint = {r = 0.3500, g = 0.663, b = 0.000, a = 0.694}, -- #4a900b1
-                shift = util.by_pixel (2,-1),
-                hr_version =
-                    {
-                        filename = "__base__/graphics/entity/slowdown-sticker/hr-slowdown-sticker.png",
-                        line_length = 5,
-                        width = 42,
-                        height = 48,
-                        frame_count = 50,
-                        animation_speed = 0.5,
-                        tint = {r = 0.3500, g = 0.663, b = 0.000, a = 0.694}, -- #ffa900b1
-                        shift = util.by_pixel(2, -0.5),
-                        scale = 0.5
-                    }
+                tint = {r = 0.3500, g = 0.663, b = 0.000, a = 0.694}, -- #ffa900b1
+                shift = util.by_pixel(2, -0.5),
+                scale = 0.5
             }
             template.areaEffects = function (attributes)
                 return {

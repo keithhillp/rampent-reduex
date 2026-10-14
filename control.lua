@@ -22,6 +22,8 @@ local Processor = require("libs/Processor")
 local Constants = require("libs/Constants")
 local MapUtils = require("libs/MapUtils")
 local Squad = require("libs/Squad")
+local Doctrine = require("libs/Doctrine")
+local Telemetry = require("libs/Telemetry")
 local tests = require("tests")
 local ChunkUtils = require("libs/ChunkUtils")
 local Upgrade = require("libs/Upgrade")
@@ -49,6 +51,13 @@ local BASE_PHEROMONE = Constants.BASE_PHEROMONE
 local PLAYER_PHEROMONE = Constants.PLAYER_PHEROMONE
 
 local UNIT_DEATH_POINT_COST = Constants.UNIT_DEATH_POINT_COST
+
+local DEFENSE_TURRET_TYPES = Constants.DEFENSE_TURRET_TYPES
+local DEFENSE_ELECTRIC_FALLBACK_RADIUS = Constants.DEFENSE_ELECTRIC_FALLBACK_RADIUS
+local DOCTRINE_DAMAGE_FILTER = Constants.DOCTRINE_DAMAGE_FILTER
+local DEFENSE_THREAT_PER_KILL = Constants.DEFENSE_THREAT_PER_KILL
+local DEFENSE_THREAT_SCOUT_MULTIPLIER = Constants.DEFENSE_THREAT_SCOUT_MULTIPLIER
+local DEFENSE_THREAT_TURRET_DESTROYED_FACTOR = Constants.DEFENSE_THREAT_TURRET_DESTROYED_FACTOR
 
 local SETTLE_CLOUD_WARMUP = Constants.SETTLE_CLOUD_WARMUP
 
@@ -137,6 +146,8 @@ local decompressSquad = Squad.decompressSquad
 local isDrained = ChunkPropertyUtils.isDrained
 local setDrainedTick = ChunkPropertyUtils.setDrainedTick
 local getCombinedDeathGeneratorRating = ChunkPropertyUtils.getCombinedDeathGeneratorRating
+local addDefenseThreat = ChunkPropertyUtils.addDefenseThreat
+local scaleDefenseThreat = ChunkPropertyUtils.scaleDefenseThreat
 
 local retreatUnits = Squad.retreatUnits
 
@@ -159,11 +170,92 @@ local sFind = string.find
 
 local mRandom = math.random
 
--- local references to global
+-- local references to storage
 
 local Universe -- manages the chunks that make up the game Universe
 
 -- hook functions
+
+--[[
+    Remembers where player turrets are killing units, weighted heavily for scouts
+    since probing the defenses is their whole purpose.
+--]]
+local function findDefenseTurret(map, cause, position, damageTypeName)
+    local causeValid = cause and cause.valid
+    if causeValid and DEFENSE_TURRET_TYPES[cause.type] then
+        return cause
+    end
+    -- tesla chain bounces may report no cause or the previous enemy in the chain
+    if (damageTypeName == "electric")
+        and ((not causeValid) or (cause.force.name == "enemy"))
+    then
+        return map.surface.find_entities_filtered({
+                position = position,
+                radius = DEFENSE_ELECTRIC_FALLBACK_RADIUS,
+                type = "electric-turret",
+                force = Universe.playerForces,
+                limit = 1
+        })[1]
+    end
+end
+
+local function recordDefenseKill(map, chunk, cause, squad, tick, position, damageTypeName)
+    if not Universe.enableScouting then
+        return
+    end
+    cause = findDefenseTurret(map, cause, position, damageTypeName)
+    if not cause then
+        return
+    end
+    local amount = DEFENSE_THREAT_PER_KILL
+    if squad and squad.scout then
+        amount = amount * DEFENSE_THREAT_SCOUT_MULTIPLIER
+    end
+    local turretChunk = getChunkByPosition(map, cause.position)
+    if (turretChunk ~= -1) then
+        addDefenseThreat(turretChunk, amount, tick)
+    end
+    if (chunk ~= -1) and (chunk ~= turretChunk) then
+        addDefenseThreat(chunk, amount * 0.5, tick)
+    end
+end
+
+--[[
+    Damage to turrets and walls counts toward the attacking squad's doctrine score,
+    so attacks that wear defenses down without breaking through still rank above
+    attacks that never land a hit.
+--]]
+local function onDefenseDamaged(event)
+    if not Universe.enableEvolvingDoctrine then
+        return
+    end
+    local force = event.force
+    if not (force and Universe.enemyForceLookup[force.name]) then
+        return
+    end
+    local amount = event.final_damage_amount
+    local cause = event.cause
+    if cause and cause.valid and (cause.type == "unit") then
+        local commandable = cause.commandable
+        local group = commandable and commandable.parent_group
+        if group and group.valid then
+            local squad = Universe.groupNumberToSquad[group.unique_id]
+            if squad then
+                Doctrine.recordDamage(squad, amount)
+                return
+            end
+        else
+            local credit = Doctrine.detachedCredit(cause)
+            if credit then
+                Doctrine.recordDamage(credit, amount)
+                return
+            end
+        end
+    end
+    -- acid splash fires and other indirect damage carry no squad unit as cause,
+    -- credit the attack hitting that spot instead
+    Doctrine.creditNearbyDamage(event.entity, amount)
+end
 
 local function onIonCannonFired(event)
     --[[
@@ -214,6 +306,8 @@ local function initializeLibraries(addProperties)
     end
     BaseUtils.init(Universe)
     Squad.init(Universe)
+    Doctrine.init(Universe)
+    Telemetry.init(Universe)
     BaseUtils.init(Universe)
     Processor.init(Universe)
     MapUtils.init(Universe)
@@ -222,7 +316,7 @@ local function initializeLibraries(addProperties)
 end
 
 local function onLoad()
-    Universe = global.universe
+    Universe = storage.universe
 
     initializeLibraries()
 
@@ -301,15 +395,38 @@ local function onModSettingsChange(event)
 
     Universe["printAwakenMessage"] = settings.global["rampant--printAwakenMessage"].value
 
+    Universe["enableScouting"] = settings.global["rampant--enableScouting"].value
+    Universe["enableSupplyTargeting"] = settings.global["rampant--enableSupplyTargeting"].value
+    Universe["enableCoordinatedWaves"] = settings.global["rampant--enableCoordinatedWaves"].value
+    Universe["printTactics"] = settings.global["rampant--printTactics"].value
+    Universe["enableEvolvingDoctrine"] = settings.global["rampant--enableEvolvingDoctrine"].value
+    Universe["writeTelemetry"] = settings.global["rampant--writeTelemetry"].value
+    if Universe.writeTelemetry then
+        Telemetry.record("session", {
+                version = script.active_mods["Rampant"],
+                setting = event.setting,
+                scouting = Universe.enableScouting,
+                priorityStrikes = Universe.enableSupplyTargeting,
+                coordinatedWaves = Universe.enableCoordinatedWaves,
+                evolvingDoctrine = Universe.enableEvolvingDoctrine,
+                evolution = game.forces.enemy.get_evolution_factor(),
+                awake = Universe.awake,
+                peaceTimeEndsTick = Universe.initialPeaceTime,
+                attackWaveMaxSize = Universe.attackWaveMaxSize,
+                maxSquads = Universe.AI_MAX_SQUAD_COUNT
+        })
+    end
+
     Universe["minimumAdaptationEvolution"] = settings.global["rampant--minimumAdaptationEvolution"].value
 
     return true
 end
 
 local function onConfigChanged()
-    game.print("Rampant - Version 3.3.3")
+    game.print("Rampant - Version 3.8.2")
     initializeLibraries(true)
     Upgrade.attempt()
+    Doctrine.upgradeSaved()
 
     onModSettingsChange({setting="rampant--"})
 
@@ -325,11 +442,12 @@ local function onConfigChanged()
         ["neutral"]=true
     }
 
-    if game.active_mods["AbandonedRuins"] then
+    if script.active_mods["AbandonedRuins"] then
         npcForces["AbandonedRuins:enemy"] = true
     end
 
     Upgrade.setCommandForces(npcForces, enemyForces)
+    Universe.enemyForceLookup = enemyForces
 
     for _,surface in pairs(game.surfaces) do
         if not Universe.maps[surface.index] then
@@ -338,7 +456,7 @@ local function onConfigChanged()
     end
 
     if not Universe.ranIncompatibleMessage and Universe.newEnemies and
-        (game.active_mods["bobenemies"] or game.active_mods["Natural_Evolution_Enemies"]) then
+        (script.active_mods["bobenemies"] or script.active_mods["Natural_Evolution_Enemies"]) then
         Universe.ranIncompatibleMessage = true
         game.print({"description.rampant-bobs-nee-newEnemies"})
     end
@@ -454,14 +572,29 @@ local function onDeath(event)
                 unregisterEnemyBaseStructure(map, entity, damageTypeName)
             end
         else
-            local group = entity.unit_group
+            local commandable = entity.commandable
+            local group = commandable and commandable.parent_group
             if group and group.valid then
-                squad = Universe.groupNumberToSquad[group.group_number]
+                squad = Universe.groupNumberToSquad[group.unique_id]
                 if squad then
                     decompressSquad(squad, tick)
                     if damageTypeName then
                         base = squad.base
                     end
+                end
+            end
+            recordDefenseKill(map, chunk, cause, squad, tick, entityPosition, damageTypeName)
+            if squad then
+                Doctrine.recordLoss(squad)
+                if squad.scout then
+                    Doctrine.survey(squad.base, surface, entityPosition)
+                end
+            else
+                -- units that broke off from their squad, like spitters giving fire support
+                local credit = Doctrine.detachedCredit(entity)
+                if credit then
+                    Doctrine.recordLoss(credit)
+                    Doctrine.forgetDetached(entity)
                 end
             end
         end
@@ -483,7 +616,11 @@ local function onDeath(event)
                     if base.lostEnemyUnits % 20 == 0 then
                         modifyBaseUnitPoints(base, -(20*UNIT_DEATH_POINT_COST), "20 Units Lost")
                     end
-                    if (Universe.random() < Universe.rallyThreshold) and not surface.peaceful_mode then
+                    -- dying scouts are expected and should not pull in vengeance squads
+                    if not (squad and squad.scout)
+                        and (Universe.random() < Universe.rallyThreshold)
+                        and not surface.peaceful_mode
+                    then
                         rallyUnits(chunk, tick)
                     end
                     if artilleryBlast then
@@ -491,7 +628,12 @@ local function onDeath(event)
                     end
                 end
 
-                if (getCombinedDeathGeneratorRating(chunk) < Universe.retreatThreshold) and cause and cause.valid and cause.get_health_ratio() ~= nil then
+                -- the doctrine's resolve scales how much punishment a squad takes before falling back
+                local retreatThreshold = Universe.retreatThreshold
+                if squad and squad.retreatScale then
+                    retreatThreshold = retreatThreshold * squad.retreatScale
+                end
+                if (getCombinedDeathGeneratorRating(chunk) < retreatThreshold) and cause and cause.valid and cause.get_health_ratio() ~= nil then
                     retreatUnits(chunk,
                                  cause,
                                  tick,
@@ -531,15 +673,33 @@ local function onDeath(event)
             local drained = false
             if chunk ~= -1 then
                 victoryScent(chunk, entityType)
+                if DEFENSE_TURRET_TYPES[entityType] then
+                    -- a broken turret makes this stretch of the perimeter weaker
+                    scaleDefenseThreat(chunk, DEFENSE_THREAT_TURRET_DESTROYED_FACTOR, tick)
+                end
                 drained = (entityType == "electric-turret") and isDrained(chunk, tick)
+                local credited = false
                 if cause and cause.type == "unit" then
-                    local group = cause.unit_group
+                    local commandable = cause.commandable
+                    local group = commandable and commandable.parent_group
                     if group and group.valid then
-                        squad = Universe.groupNumberToSquad[group.group_number]
+                        squad = Universe.groupNumberToSquad[group.unique_id]
                         if squad then
                             base = squad.base
+                            Doctrine.recordKill(squad, entityType)
+                            credited = true
+                        end
+                    else
+                        local credit = Doctrine.detachedCredit(cause)
+                        if credit then
+                            Doctrine.recordKill(credit, entityType)
+                            credited = true
                         end
                     end
+                end
+                if not credited then
+                    -- kills by acid splash fires and other indirect damage
+                    Doctrine.creditNearbyKill(entity, entityType, cause)
                 end
                 if not base then
                     base = findNearbyBase(chunk)
@@ -706,9 +866,9 @@ local function onTriggerEntityCreated(event)
 end
 
 local function onInit()
-    global.universe = {}
+    storage.universe = {}
 
-    Universe = global.universe
+    Universe = storage.universe
 
     hookEvents()
     onConfigChanged()
@@ -762,7 +922,7 @@ local function onUnitGroupCreated(event)
         end
 
         squad = createSquad(nil, map, group, settler, base)
-        Universe.groupNumberToSquad[group.group_number] = squad
+        Universe.groupNumberToSquad[group.unique_id] = squad
 
         if settler then
             Universe.builderCount = Universe.builderCount + 1
@@ -790,7 +950,7 @@ local function onUnitGroupCreated(event)
         end
 
         squad = createSquad(nil, map, group, settler, base)
-        Universe.groupNumberToSquad[group.group_number] = squad
+        Universe.groupNumberToSquad[group.unique_id] = squad
 
         if settler then
             Universe.builderCount = Universe.builderCount + 1
@@ -814,7 +974,7 @@ local function onGroupFinishedGathering(event)
         return
     end
     activateMap(map)
-    local squad = Universe.groupNumberToSquad[group.group_number]
+    local squad = Universe.groupNumberToSquad[group.unique_id]
     if squad then
         if squad.settler then
             if (Universe.builderCount <= Universe.AI_MAX_BUILDER_COUNT) then
@@ -829,11 +989,9 @@ local function onGroupFinishedGathering(event)
                 return
             end
 
-            if (Universe.squadCount <= Universe.AI_MAX_SQUAD_COUNT) then
-                squadDispatch(squad, event.tick)
-            else
-                group.destroy()
-            end
+            -- the squad cap is enforced when squads form, disbanding a squad that
+            -- already formed only frees its units to be recruited and paid for again
+            squadDispatch(squad, event.tick)
         end
     else
         local position = group.position
@@ -863,7 +1021,7 @@ local function onGroupFinishedGathering(event)
         end
 
         squad = createSquad(nil, map, group, settler, base)
-        Universe.groupNumberToSquad[group.group_number] = squad
+        Universe.groupNumberToSquad[group.unique_id] = squad
         if settler then
             Universe.builderCount = Universe.builderCount + 1
         else
@@ -947,7 +1105,7 @@ local function onBuilderArrived(event)
     end
     activateMap(map)
     if not usingUnit then
-        local squad = Universe.groupNumberToSquad[builder.group_number]
+        local squad = Universe.groupNumberToSquad[builder.unique_id]
         squad.commandTick = event.tick + COMMAND_TIMEOUT * 10
     end
     if Universe.PRINT_BASE_SETTLING then
@@ -981,8 +1139,9 @@ script.on_event(defines.events.on_tick,
                             recycleBases()
                         end
                         cleanUpMapTables(tick)
-                        planning(gameRef.forces.enemy.evolution_factor)
+                        planning(gameRef.forces.enemy.get_evolution_factor())
                         processHives(tick)
+                        Doctrine.processAttacks(tick)
                         cleanHivesData()
                     elseif (pick == 1) then
                         processPlayers(gameRef.connected_players, tick)
@@ -1053,6 +1212,7 @@ script.on_event({defines.events.on_entity_died,
                  defines.events.script_raised_destroy}, onDeath)
 script.on_event(defines.events.on_chunk_generated, onChunkGenerated)
 script.on_event(defines.events.on_unit_group_created, onUnitGroupCreated)
+script.on_event(defines.events.on_entity_damaged, onDefenseDamaged, DOCTRINE_DAMAGE_FILTER)
 script.on_event(defines.events.on_force_created, onForceCreated)
 script.on_event(defines.events.on_forces_merged, onForceMerged)
 script.on_event(defines.events.on_unit_group_finished_gathering, onGroupFinishedGathering)
@@ -1285,3 +1445,23 @@ local function rampantSetAIState(event)
 end
 
 commands.add_command('rampantSetAIState', "", rampantSetAIState)
+
+local function rampantDoctrines(event)
+    local player = event.player_index and game.get_player(event.player_index)
+    local printer = (player and player.print) or game.print
+    local found = false
+    for _, map in pairs(Universe.maps) do
+        if map.surface.valid and map.doctrine then
+            found = true
+            local lines = Doctrine.describe(map)
+            for i=1,#lines do
+                printer(lines[i])
+            end
+        end
+    end
+    if not found then
+        printer("Rampant: no attack doctrines yet, they are created when a base first attacks")
+    end
+end
+
+commands.add_command('rampantDoctrines', "Lists each surface's evolving attack doctrines and their fitness", rampantDoctrines)
